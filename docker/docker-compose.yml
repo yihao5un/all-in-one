@@ -1,0 +1,4 @@
+name: uno-project
+
+include:
+  - docker-compose.infra.yml

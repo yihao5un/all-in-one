@@ -1,0 +1,320 @@
+services:
+  # ==========================================
+  # Nacos Cluster (3 Nodes)
+  # ==========================================
+  nacos1:
+    image: nacos/nacos-server:v2.2.3
+    container_name: nacos1
+    platform: linux/amd64
+    restart: always
+    environment:
+      - PREFER_HOST_MODE=hostname
+      - MODE=cluster
+      - NACOS_SERVERS=nacos1:8848 nacos2:8848 nacos3:8848
+      - JVM_XMS=256m
+      - JVM_XMX=256m
+      - SPRING_DATASOURCE_PLATFORM=mysql
+      - MYSQL_SERVICE_HOST=mysql-master
+      - MYSQL_SERVICE_DB_NAME=nacos
+      - MYSQL_SERVICE_PORT=3306
+      - MYSQL_SERVICE_USER=root
+      - MYSQL_SERVICE_PASSWORD=root
+      - MYSQL_SERVICE_DB_PARAM=characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - NACOS_AUTH_ENABLE=true
+      - NACOS_AUTH_TOKEN=SecretKey012345678901234567890123456789012345678901234567890123456789
+      - NACOS_AUTH_IDENTITY_KEY=nacos
+      - NACOS_AUTH_IDENTITY_VALUE=nacos
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    networks:
+      - uno-network
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+
+  nacos2:
+    image: nacos/nacos-server:v2.2.3
+    container_name: nacos2
+    platform: linux/amd64
+    restart: always
+    environment:
+      - PREFER_HOST_MODE=hostname
+      - MODE=cluster
+      - NACOS_SERVERS=nacos1:8848 nacos2:8848 nacos3:8848
+      - JVM_XMS=256m
+      - JVM_XMX=256m
+      - SPRING_DATASOURCE_PLATFORM=mysql
+      - MYSQL_SERVICE_HOST=mysql-master
+      - MYSQL_SERVICE_DB_NAME=nacos
+      - MYSQL_SERVICE_PORT=3306
+      - MYSQL_SERVICE_USER=root
+      - MYSQL_SERVICE_PASSWORD=root
+      - MYSQL_SERVICE_DB_PARAM=characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - NACOS_AUTH_ENABLE=true
+      - NACOS_AUTH_TOKEN=SecretKey012345678901234567890123456789012345678901234567890123456789
+      - NACOS_AUTH_IDENTITY_KEY=nacos
+      - NACOS_AUTH_IDENTITY_VALUE=nacos
+    ports:
+      - "8849:8848"
+      - "9849:9848"
+    networks:
+      - uno-network
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+
+  nacos3:
+    image: nacos/nacos-server:v2.2.3
+    container_name: nacos3
+    platform: linux/amd64
+    restart: always
+    environment:
+      - PREFER_HOST_MODE=hostname
+      - MODE=cluster
+      - NACOS_SERVERS=nacos1:8848 nacos2:8848 nacos3:8848
+      - JVM_XMS=256m
+      - JVM_XMX=256m
+      - SPRING_DATASOURCE_PLATFORM=mysql
+      - MYSQL_SERVICE_HOST=mysql-master
+      - MYSQL_SERVICE_DB_NAME=nacos
+      - MYSQL_SERVICE_PORT=3306
+      - MYSQL_SERVICE_USER=root
+      - MYSQL_SERVICE_PASSWORD=root
+      - MYSQL_SERVICE_DB_PARAM=characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC
+      - NACOS_AUTH_ENABLE=true
+      - NACOS_AUTH_TOKEN=SecretKey012345678901234567890123456789012345678901234567890123456789
+      - NACOS_AUTH_IDENTITY_KEY=nacos
+      - NACOS_AUTH_IDENTITY_VALUE=nacos
+    ports:
+      - "8850:8848"
+      - "9850:9848"
+    networks:
+      - uno-network
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+
+  # ==========================================
+  # MySQL Master-Slave (1 Master, 2 Slaves)
+  # ==========================================
+  mysql-master:
+    image: mysql:8.0
+    container_name: mysql-master
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+    command: 
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    networks:
+      - uno-network
+
+  mysql-slave1:
+    image: mysql:8.0
+    container_name: mysql-slave1
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+    command: 
+      - --server-id=2
+      - --log-bin=mysql-bin
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --read_only=1
+    ports:
+      - "3307:3306"
+    networks:
+      - uno-network
+    depends_on:
+      - mysql-master
+
+  mysql-slave2:
+    image: mysql:8.0
+    container_name: mysql-slave2
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+    command: 
+      - --server-id=3
+      - --log-bin=mysql-bin
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --read_only=1
+    ports:
+      - "3308:3306"
+    networks:
+      - uno-network
+    depends_on:
+      - mysql-master
+
+  # ==========================================
+  # Redis Cluster (3 Nodes for Demo)
+  # ==========================================
+  redis1:
+    image: redis:7.0
+    container_name: redis1
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --port 6379
+    networks:
+      - uno-network
+
+  redis2:
+    image: redis:7.0
+    container_name: redis2
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --port 6379 --replicaof redis1 6379
+    networks:
+      - uno-network
+    depends_on:
+      - redis1
+
+  redis3:
+    image: redis:7.0
+    container_name: redis3
+    ports:
+      - "6381:6379"
+    command: redis-server --appendonly yes --port 6379 --replicaof redis1 6379
+    networks:
+      - uno-network
+    depends_on:
+      - redis1
+
+  # ==========================================
+  # RocketMQ (2 NameSrv, 3 Brokers)
+  # ==========================================
+  rmqnamesrv1:
+    image: apache/rocketmq:5.1.0
+    container_name: rmqnamesrv1
+    platform: linux/amd64
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    environment:
+      - JAVA_OPT_EXT=-Xms256m -Xmx256m -Xmn128m
+    networks:
+      - uno-network
+
+  rmqnamesrv2:
+    image: apache/rocketmq:5.1.0
+    container_name: rmqnamesrv2
+    platform: linux/amd64
+    command: sh mqnamesrv
+    ports:
+      - "9877:9876"
+    environment:
+      - JAVA_OPT_EXT=-Xms256m -Xmx256m -Xmn128m
+    networks:
+      - uno-network
+
+  rmqbroker1:
+    image: apache/rocketmq:5.1.0
+    container_name: rmqbroker1
+    platform: linux/amd64
+    ports:
+      - "10911:10911"
+      - "10909:10909"
+    environment:
+      - NAMESRV_ADDR=rmqnamesrv1:9876;rmqnamesrv2:9876
+      - JAVA_OPT_EXT=-Xms256m -Xmx256m -Xmn128m
+    command: sh mqbroker -c /home/rocketmq/rocketmq-5.1.0/conf/broker.conf -n rmqnamesrv1:9876
+    networks:
+      - uno-network
+    depends_on:
+      - rmqnamesrv1
+      - rmqnamesrv2
+
+  rmqbroker2:
+    image: apache/rocketmq:5.1.0
+    container_name: rmqbroker2
+    platform: linux/amd64
+    ports:
+      - "10912:10911"
+      - "10910:10909"
+    environment:
+      - NAMESRV_ADDR=rmqnamesrv1:9876;rmqnamesrv2:9876
+      - JAVA_OPT_EXT=-Xms256m -Xmx256m -Xmn128m
+    command: sh mqbroker -c /home/rocketmq/rocketmq-5.1.0/conf/broker.conf -n rmqnamesrv1:9876
+    networks:
+      - uno-network
+    depends_on:
+      - rmqnamesrv1
+      - rmqnamesrv2
+
+  rmqbroker3:
+    image: apache/rocketmq:5.1.0
+    container_name: rmqbroker3
+    platform: linux/amd64
+    ports:
+      - "10913:10911"
+      - "10914:10909"
+    environment:
+      - NAMESRV_ADDR=rmqnamesrv1:9876;rmqnamesrv2:9876
+      - JAVA_OPT_EXT=-Xms256m -Xmx256m -Xmn128m
+    command: sh mqbroker -c /home/rocketmq/rocketmq-5.1.0/conf/broker.conf -n rmqnamesrv1:9876
+    networks:
+      - uno-network
+    depends_on:
+      - rmqnamesrv1
+      - rmqnamesrv2
+
+  rmqdashboard:
+    image: apacherocketmq/rocketmq-dashboard:latest
+    container_name: rmqdashboard
+    platform: linux/amd64
+    ports:
+      - "8082:8082"
+    environment:
+      - JAVA_OPTS=-Drocketmq.namesrv.addr=rmqnamesrv1:9876;rmqnamesrv2:9876
+    networks:
+      - uno-network
+    depends_on:
+      - rmqnamesrv1
+      - rmqnamesrv2
+
+
+  # ==========================================
+  # Seata TC Server
+  # ==========================================
+  seata:
+    image: seataio/seata-server:1.7.0
+    container_name: seata-server
+    platform: linux/amd64
+    ports:
+      - "8091:8091"
+      - "7091:7091"
+    environment:
+      - SEATA_PORT=8091
+      - STORE_MODE=db
+      - SEATA_STORE_DB_DATASOURCE=druid
+      - SEATA_STORE_DB_DB_TYPE=mysql
+      - SEATA_STORE_DB_DRIVER_CLASS_NAME=com.mysql.cj.jdbc.Driver
+      - SEATA_STORE_DB_URL=jdbc:mysql://mysql-master:3306/seata?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - SEATA_STORE_DB_USER=root
+      - SEATA_STORE_DB_PASSWORD=root
+      - SEATA_STORE_DB_MIN_CONN=5
+      - SEATA_STORE_DB_MAX_CONN=30
+      - SEATA_STORE_DB_GLOBAL_TABLE=global_table
+      - SEATA_STORE_DB_BRANCH_TABLE=branch_table
+      - SEATA_STORE_DB_LOCK_TABLE=lock_table
+      - SEATA_STORE_DB_DISTRIBUTED_LOCK_TABLE=distributed_lock
+      - SEATA_STORE_DB_QUERY_LIMIT=100
+      - SEATA_STORE_DB_MAX_WAIT=5000
+    networks:
+      - uno-network
+
+networks:
+  uno-network:
+    driver: bridge
