@@ -303,7 +303,7 @@ graph TB
 - [x] 引入安全模块，落地认证中心及 JWT 鉴权 (`uno-auth` 额外加固)
 - [x] 订单中心 CRUD + 状态机 (`uno-order`)
 - [x] 产品/福利中心 CRUD + 名额管理 (`uno-product`)
-- [ ] 薪资结算中心基础框架 (`uno-settlement`)
+- [x] 薪资结算中心基础框架 (`uno-settlement`)
 
 ### Phase 3：核心链路打通（3-5 天）
 - [ ] Seata AT 分布式事务：入职 = 订单创建 + 名额扣减

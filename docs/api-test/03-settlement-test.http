@@ -1,0 +1,20 @@
+### 1. 登录获取令牌
+POST http://localhost:8080/uno-auth/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=admin&password=123456
+
+> {%
+    client.global.set("auth_token", response.body.data.token);
+%}
+
+### 2. 模拟发起一次结算请求 (如：订单流转到最后一步触发结算)
+POST http://localhost:8080/uno-settlement/settlement/create
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer {{auth_token}}
+
+orderNo=ORD2026051000001&employeeId=1001
+
+### 3. (后续可扩展) 查询我的账单列表
+# GET http://localhost:8080/uno-settlement/settlement/list
+# Authorization: Bearer {{auth_token}}

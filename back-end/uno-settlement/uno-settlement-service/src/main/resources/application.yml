@@ -1,0 +1,19 @@
+server:
+  port: 8085
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/uno_settlement?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: root
+    password: root
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# RocketMQ 配置 (为 Phase 3 做准备)
+rocketmq:
+  name-server: 127.0.0.1:9876
+  producer:
+    group: uno-settlement-group

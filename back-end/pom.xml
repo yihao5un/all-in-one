@@ -17,6 +17,7 @@
         <module>uno-auth</module>
         <module>uno-order</module>
         <module>uno-product</module>
+        <module>uno-settlement</module>
     </modules>
 
     <properties>

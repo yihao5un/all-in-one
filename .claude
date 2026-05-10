@@ -24,5 +24,5 @@
    - 必须使用 Nacos 作为注册与配置中心。
 
 ## 历史遗留进度提示 (Context Bookmark)
-- **已攻克**: Phase 1 基础设施；Phase 2 的 `uno-common`、`uno-gateway`、`uno-auth`、`uno-order` 和 `uno-product` 已连通。
-- **当前目标**: 准备启动 Phase 2 最后一个业务模块 `uno-settlement`（薪资结算中心）。
+- **已攻克**: Phase 1 (基础设施) 与 Phase 2 (所有微服务骨架 CRUD、网关鉴权) 已全部跑通。
+- **当前目标**: 开始 Phase 3：核心链路打通。首要任务是接入 **Seata AT** 实现入职流程的分布式事务。
