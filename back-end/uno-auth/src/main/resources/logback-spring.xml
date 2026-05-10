@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 定义日志颜色的格式 -->
+    <property name="CONSOLE_LOG_PATTERN" 
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{50}) : %msg%n"/>
+
+    <!-- 控制台 Appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 全局基础日志级别 -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+    </root>
+
+    <!-- 专门为我们的业务代码开启 DEBUG 级别，方便看清楚方法调用 -->
+    <logger name="com.uno.auth" level="DEBUG" />
+    
+    <!-- 为 MyBatis Mapper 开启 DEBUG，结合 Mybatis-Plus 打印出优美的 SQL -->
+    <logger name="com.uno.auth.mapper" level="DEBUG" />
+</configuration>

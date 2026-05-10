@@ -1,0 +1,28 @@
+# AI 辅助开发系统指令 (AI System Prompt)
+
+## 项目背景
+本机正在开发一套基于 Spring Cloud Alibaba 的**人力资源微服务系统 (HR System)**。
+核心业务包含：Gateway网关、Auth认证中心、Order员工订单(入职/调岗)中心、Product福利名额中心、Settlement薪资结算中心。
+
+## 核心工作流强制原则 (CRITICAL RULES)
+
+1. **强制进度对齐 (Sync State)**：
+   每次开启新会话或接到新任务时，**必须首先主动读取** `docs/01-feasibility-analysis.md` 文件。
+   该文件是整个项目的**唯一真实进度源 (Single Source of Truth)**。请根据文档中 `[x]` 和 `[ ]` 的勾选状态，无缝衔接下一步的开发任务。
+
+2. **严格按部就班 (Follow the Plan)**：
+   严格按照 `01-feasibility-analysis.md` 中定义的 Phase（阶段）顺序进行开发。如果遇到需要前置依赖的模块（例如必须先写网关才能写鉴权），允许插入并补充步骤，但切勿随意跳跃主线。
+
+3. **双向同步更新文档 (Keep Docs & Prompts Updated)**：
+   在完成任何一个业务模块、数据库设计、或是发现了架构的调整点后，**必须同步修改并更新以下两个文件**：
+   - `docs/01-feasibility-analysis.md`：完成任务时，将对应的 `[ ]` 修改为 `[x]`。发现原计划有缺失，必须在文档对应的 Phase 中补充出来。
+   - `.claude` (本文件)：随着项目进展，必须动态更新底部的“历史遗留进度提示 (Context Bookmark)”，或是在遇到新的架构规范时，补充到“命名与架构规范”中。
+
+4. **命名与架构规范 (Naming Conventions)**：
+   - 统一微服务包名与模块前缀为 `uno-`（如：`uno-gateway`, `uno-auth`, `uno-order`）。
+   - Web 层统一返回 `Result<T>`。
+   - 必须使用 Nacos 作为注册与配置中心。
+
+## 历史遗留进度提示 (Context Bookmark)
+- **已攻克**: Phase 1 基础设施已全通；Phase 2 的 `uno-common`、`uno-gateway` 和 `uno-auth` 已连通 MySQL 跑通鉴权。
+- **当前目标**: 准备启动 Phase 2 剩余业务模块（`uno-order`、`uno-product` 等）的 CRUD 编写。

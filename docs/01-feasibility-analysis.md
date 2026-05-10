@@ -1,4 +1,4 @@
-# 外服人事调派订单系统 — Demo 项目可行性分析
+# 人力资源系统 — Demo 项目可行性分析
 
 ## 结论：✅ 完全可行
 
@@ -10,8 +10,8 @@
 ## 一、项目业务概览（来自面试笔记）
 
 ```
-入职 / 调派订单创建
-  → 订单中心校验业务状态
+入职 / 调岗创建
+  → 员工中心校验业务状态
   → Seata AT 开启全局事务
   → 更新订单状态
   → 产品中心扣减产品名额 / 服务额度
@@ -21,7 +21,7 @@
   → 生成账单、计算薪资
 ```
 
-**3 个核心微服务**：订单中心、产品中心、薪资结算中心
+**3 个核心微服务**：订单中心、产品中心（名额/福利管理）、薪资结算中心
 
 ---
 
@@ -263,17 +263,18 @@ graph TB
 │   └── package.json
 │
 ├── back-end/                        # Spring Boot 后端
-│   ├── aio-gateway/                 # Spring Cloud Gateway
-│   ├── aio-order/                   # 订单中心
-│   │   ├── aio-order-api/           # 对外 API (Feign 接口)
-│   │   └── aio-order-service/       # 业务实现
-│   ├── aio-product/                 # 产品中心
-│   │   ├── aio-product-api/
-│   │   └── aio-product-service/
-│   ├── aio-settlement/              # 薪资结算中心
-│   │   ├── aio-settlement-api/
-│   │   └── aio-settlement-service/
-│   ├── aio-common/                  # 公共模块
+│   ├── uno-gateway/                 # Spring Cloud Gateway
+│   ├── uno-auth/                    # 认证中心 (JWT 安全入口)
+│   ├── uno-order/                   # 订单中心 (入职/调岗流程)
+│   │   ├── uno-order-api/           # 对外 API (Feign 接口)
+│   │   └── uno-order-service/       # 业务实现
+│   ├── uno-product/                 # 产品中心 (福利/名额管理)
+│   │   ├── uno-product-api/
+│   │   └── uno-product-service/
+│   ├── uno-settlement/              # 薪资结算中心
+│   │   ├── uno-settlement-api/
+│   │   └── uno-settlement-service/
+│   ├── uno-common/                  # 公共模块
 │   └── pom.xml                      # 父 POM
 │
 └── ai/                              # AI 服务
@@ -292,16 +293,17 @@ graph TB
 ## 六、分阶段实施建议
 
 ### Phase 1：基础设施（1-2 天）
-- [ ] Docker Compose 编排所有中间件（Nacos×3, MySQL 主从, Redis Sentinel, RocketMQ, Seata TC）
-- [ ] 验证所有中间件集群健康
-- [ ] 准备数据库初始化脚本
+- [x] Docker Compose 编排所有中间件（Nacos×3, MySQL 主从, Redis Sentinel, RocketMQ, Seata TC）
+- [x] 验证所有中间件集群健康
+- [x] 准备数据库初始化脚本
 
 ### Phase 2：核心微服务骨架（2-3 天）
-- [ ] 搭建 Spring Boot 父工程 + 公共模块
-- [ ] 实现 Gateway + Nacos 注册发现
-- [ ] 订单中心 CRUD + 状态机
-- [ ] 产品中心 CRUD + 名额管理
-- [ ] 薪资结算中心基础框架
+- [x] 搭建 Spring Boot 父工程 + 公共模块 (`uno-common`)
+- [x] 实现 Gateway + Nacos 注册发现 (`uno-gateway`)
+- [x] 引入安全模块，落地认证中心及 JWT 鉴权 (`uno-auth` 额外加固)
+- [ ] 订单中心 CRUD + 状态机 (`uno-order`)
+- [ ] 产品/福利中心 CRUD + 名额管理 (`uno-product`)
+- [ ] 薪资结算中心基础框架 (`uno-settlement`)
 
 ### Phase 3：核心链路打通（3-5 天）
 - [ ] Seata AT 分布式事务：入职 = 订单创建 + 名额扣减
