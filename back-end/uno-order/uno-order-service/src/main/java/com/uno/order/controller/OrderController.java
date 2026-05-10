@@ -34,4 +34,13 @@ public class OrderController {
         Order updatedOrder = orderService.advanceStatus(orderNo);
         return Result.success(updatedOrder);
     }
+
+    /**
+     * 核心业务：全链路入职 (Seata 分布式事务演示)
+     */
+    @PostMapping("/onboard")
+    public Result<Object> onboard(@RequestParam("employeeId") Long employeeId, @RequestParam("productId") Long productId) {
+        String orderNo = orderService.onboard(employeeId, productId);
+        return Result.success(orderNo);
+    }
 }

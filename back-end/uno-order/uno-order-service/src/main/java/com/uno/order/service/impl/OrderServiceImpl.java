@@ -7,12 +7,50 @@ import com.uno.common.result.ResultCodeEnum;
 import com.uno.order.entity.Order;
 import com.uno.order.mapper.OrderMapper;
 import com.uno.order.service.OrderService;
+import com.uno.product.api.ProductFeignClient;
+import io.seata.spring.annotation.GlobalTransactional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.UUID;
 
 @Slf4j
 @Service
 public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements OrderService {
+
+    @Autowired
+    private ProductFeignClient productFeignClient;
+
+    @Override
+    @GlobalTransactional(name = "uno-onboard-flow", rollbackFor = Exception.class)
+    public String onboard(Long employeeId, Long productId) {
+        log.info("🚀 【入职全链路】开始执行: EmployeeID={}, ProductID={}", employeeId, productId);
+        
+        // 1. 创建入职订单 (本地事务)
+        String orderNo = "ONB" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+        Order order = new Order();
+        order.setOrderNo(orderNo);
+        order.setEmployeeId(employeeId);
+        order.setOrderType("ONBOARD");
+        order.setStatus("CREATED");
+        order.setRemark("Seata 分布式事务测试入职单");
+        this.save(order);
+        log.info("✅ 步骤1: 订单已创建 - {}", orderNo);
+
+        // 2. 扣减福利名额 (远程调用 - 另一个微服务，另一个数据库)
+        log.info("➡️ 步骤2: 正在通过 Feign 调用产品中心扣减名额...");
+        productFeignClient.deduct(productId, 1);
+
+        // 模拟异常：使用 equals 比较对象数值，避免 == 的缓存坑
+        if (Long.valueOf(999).equals(productId)) {
+            log.error("❌ 触发模拟异常，准备全局回滚！");
+            throw new UnoException("【模拟异常】Seata 应该让刚才创建的订单也消失！");
+        }
+
+        log.info("🎉 【入职全链路】执行成功！分布式事务已提交。");
+        return orderNo;
+    }
 
     @Override
     public Order advanceStatus(String orderNo) {

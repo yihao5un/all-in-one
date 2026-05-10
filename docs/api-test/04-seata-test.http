@@ -1,0 +1,28 @@
+### 1. 登录获取令牌
+POST http://localhost:8080/uno-auth/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=admin&password=123456
+
+> {%
+    client.global.set("auth_token", response.body.data.token);
+%}
+
+### 2. 【分布式事务-成功案例】入职并领取福利 (101-高端医疗险)
+# 预期结果：uno_order 增加一条 ONB 订单，uno_product 的 used_quota 增加 1
+POST http://localhost:8080/uno-order/order/onboard
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer {{auth_token}}
+
+employeeId=2001&productId=101
+
+
+### 3. 【分布式事务-失败回滚案例】故意触发异常 (productId=999)
+# 预期结果：
+# 1. 订单中心虽然执行了 save(order)，但因为后续报错，订单应该被 Seata 回滚（数据库查不到该单号）
+# 2. 产品中心即使调用了扣减（如果有的话），也应该一起回滚
+POST http://localhost:8080/uno-order/order/onboard
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer {{auth_token}}
+
+employeeId=2002&productId=999

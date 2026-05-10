@@ -14,6 +14,15 @@ public class UnoException extends RuntimeException {
     private Integer code;
 
     /**
+     * 只接收消息，状态码默认为失败 (500 或 201)
+     * @param message 异常信息
+     */
+    public UnoException(String message) {
+        super(message);
+        this.code = ResultCodeEnum.FAIL.getCode();
+    }
+
+    /**
      * 接收自定义状态码和消息
      * @param message 异常信息
      * @param code 状态码
