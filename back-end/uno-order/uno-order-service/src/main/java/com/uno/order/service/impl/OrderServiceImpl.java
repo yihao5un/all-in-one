@@ -24,11 +24,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     @Override
     @GlobalTransactional(name = "uno-onboard-flow", rollbackFor = Exception.class)
-    public String onboard(Long employeeId, Long productId) {
+    public String onboard(Long employeeId, Long productId, String orderNo) {
         log.info("🚀 【入职全链路】开始执行: EmployeeID={}, ProductID={}", employeeId, productId);
         
-        // 1. 创建入职订单 (本地事务)
-        String orderNo = "ONB" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+        // 步骤1: 创建订单 (直接使用传入的订单号)
         Order order = new Order();
         order.setOrderNo(orderNo);
         order.setEmployeeId(employeeId);

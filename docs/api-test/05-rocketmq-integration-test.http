@@ -1,0 +1,25 @@
+### Phase 3: RocketMQ 事务消息 + Seata 全链路入职测试
+
+#### 1. 触发异步入职流程
+# 该接口会发送 MQ 事务消息 -> 监听器回调执行 Seata 事务(订单创建+扣减名额) -> 成功后结算中心异步生成账单
+POST http://localhost:8083/order/onboard?employeeId=1001&productId=101
+Content-Type: application/x-www-form-urlencoded
+
+###
+
+#### 2. 验证订单中心 (库: uno_order)
+# 预期：订单已创建成功
+GET http://localhost:8083/order/ONBC84CC728C058
+Accept: application/json
+
+###
+
+#### 3. 验证产品中心 (库: uno_product)
+# 预期：ID为1的产品名额已被扣减 1
+# 可以直接去数据库看 t_product 表的 used_quota 字段
+
+###
+
+#### 4. 验证结算中心 (库: uno_settlement)
+# 预期：t_bill 表中出现了一条关联该订单的账单记录，状态为 PENDING
+# 说明 RocketMQ 消息投递成功且消费成功

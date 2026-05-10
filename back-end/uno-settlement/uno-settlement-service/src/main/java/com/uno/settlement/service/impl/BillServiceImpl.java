@@ -24,7 +24,7 @@ public class BillServiceImpl extends ServiceImpl<BillMapper, Bill> implements Bi
         bill.setEmployeeId(employeeId);
         // 模拟计算薪资/账单金额（真实场景会更复杂）
         bill.setAmount(new BigDecimal("5000.00")); 
-        bill.setStatus(0); // 待支付
+        bill.setStatus("PENDING"); // 待支付
         
         this.save(bill);
         log.info("🎯 账单生成成功: BillNo={}, Amount={}", bill.getBillNo(), bill.getAmount());

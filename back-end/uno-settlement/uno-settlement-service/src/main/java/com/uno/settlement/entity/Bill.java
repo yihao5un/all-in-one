@@ -16,7 +16,9 @@ public class Bill {
     private String orderNo;
     private Long employeeId;
     private BigDecimal amount;
-    private Integer status;
+    private String billType;    // 账单类型
+    private String status;      // 状态: PENDING, PAID, etc.
+    private String remark;      // 备注
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

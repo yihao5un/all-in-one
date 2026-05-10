@@ -16,7 +16,8 @@ public interface OrderService extends IService<Order> {
      * 入职全链路业务 (演示 Seata 分布式事务)
      * @param employeeId 员工ID
      * @param productId 关联领取的福利产品ID
+     * @param orderNo 订单号
      * @return 订单号
      */
-    String onboard(Long employeeId, Long productId);
+    String onboard(Long employeeId, Long productId, String orderNo);
 }
