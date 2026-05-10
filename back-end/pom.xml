@@ -15,6 +15,8 @@
         <module>uno-common</module>
         <module>uno-gateway</module>
         <module>uno-auth</module>
+        <module>uno-order</module>
+        <module>uno-product</module>
     </modules>
 
     <properties>

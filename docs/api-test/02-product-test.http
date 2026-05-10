@@ -1,0 +1,26 @@
+### 1. 登录获取令牌 (如果 auth_token 已过期，请先点这个)
+POST http://localhost:8080/uno-auth/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=admin&password=123456
+
+> {%
+    client.global.set("auth_token", response.body.data.token);
+%}
+
+### 2. 查询人力资源产品列表
+GET http://localhost:8080/uno-product/product/list
+Authorization: Bearer {{auth_token}}
+
+
+### 3. 模拟扣减名额 (如：员工入职领取了高端医疗险)
+POST http://localhost:8080/uno-product/product/deduct
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer {{auth_token}}
+
+productId=101&count=1
+
+
+### 4. 再次查询确认名额已扣减
+GET http://localhost:8080/uno-product/product/list
+Authorization: Bearer {{auth_token}}

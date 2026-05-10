@@ -24,5 +24,5 @@
    - 必须使用 Nacos 作为注册与配置中心。
 
 ## 历史遗留进度提示 (Context Bookmark)
-- **已攻克**: Phase 1 基础设施已全通；Phase 2 的 `uno-common`、`uno-gateway` 和 `uno-auth` 已连通 MySQL 跑通鉴权。
-- **当前目标**: 准备启动 Phase 2 剩余业务模块（`uno-order`、`uno-product` 等）的 CRUD 编写。
+- **已攻克**: Phase 1 基础设施；Phase 2 的 `uno-common`、`uno-gateway`、`uno-auth`、`uno-order` 和 `uno-product` 已连通。
+- **当前目标**: 准备启动 Phase 2 最后一个业务模块 `uno-settlement`（薪资结算中心）。

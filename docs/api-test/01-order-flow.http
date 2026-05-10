@@ -1,0 +1,23 @@
+### 1. 登录获取令牌 (经过网关 8080 转发到 uno-auth 8081)
+POST http://localhost:8080/uno-auth/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=admin&password=123456
+
+> {%
+    // 这是 IDEA 的黑科技，自动提取返回的 Token 存入全局变量
+    client.global.set("auth_token", response.body.data.token);
+    client.log("拿到 Token 啦: " + client.global.get("auth_token"));
+%}
+
+### 2. 通过网关凭据查询订单 (网关鉴权后转发到 uno-order 8083)
+GET http://localhost:8080/uno-order/order/ORD2026051000001
+# 自动带上刚才拿到的 Token
+Authorization: Bearer {{auth_token}}
+
+### 3. 触发状态机流转 (CREATED -> PROCESSING)
+POST http://localhost:8080/uno-order/order/advance
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer {{auth_token}}
+
+orderNo=ORD2026051000001

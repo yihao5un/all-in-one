@@ -50,8 +50,25 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             return unauthorizedResponse(exchange);
         }
 
-        // TODO: Phase 3 将会在这里接入 JWT 深度校验逻辑
-        // 解析通过后，我们可以利用 request.mutate() 把用户 ID 塞进请求头，传递给下游微服务
+        try {
+            // 解析真实的 JWT Token
+            if (token.startsWith("Bearer ")) {
+                token = token.substring(7);
+            }
+            io.jsonwebtoken.Claims claims = com.uno.common.utils.JwtUtils.parseToken(token);
+            String userId = claims.getSubject();
+            
+            // 将 userId 塞入后续的 HTTP 请求头中，做到下游微服务“无感知”获取当前操作用户
+            ServerHttpRequest mutatedRequest = request.mutate()
+                    .header("X-User-Id", userId)
+                    .build();
+            exchange = exchange.mutate().request(mutatedRequest).build();
+            
+            log.info("【网关放行】鉴权通过, UserId: {}", userId);
+        } catch (Exception e) {
+            log.error("【网关拦截】Token 解析失败或已过期: {}", e.getMessage());
+            return unauthorizedResponse(exchange);
+        }
 
         return chain.filter(exchange);
     }
