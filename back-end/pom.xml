@@ -14,6 +14,7 @@
     <modules>
         <module>uno-common</module>
         <module>uno-gateway</module>
+        <module>uno-auth</module>
     </modules>
 
     <properties>
@@ -130,6 +131,9 @@
                         <source>${java.version}</source>
                         <target>${java.version}</target>
                         <encoding>${project.build.sourceEncoding}</encoding>
+                        <compilerArgs>
+                            <arg>-parameters</arg>
+                        </compilerArgs>
                         <!-- 解决 Lombok 和 MapStruct 在 JDK 17+ 上的注解处理器冲突 -->
                         <annotationProcessorPaths>
                             <path>

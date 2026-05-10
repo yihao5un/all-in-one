@@ -1,0 +1,12 @@
+server:
+  port: 8080
+
+spring:
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          # 开启基于服务发现的自动化路由 (通过 serviceId 访问)
+          enabled: true
+          # 服务名转为小写 (推荐)
+          lower-case-service-id: true
