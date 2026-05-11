@@ -1,6 +1,8 @@
 package com.uno.order.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.uno.common.idempotent.Idempotent;
+import com.uno.common.lock.DistributedLock;
 import com.uno.order.entity.Order;
 
 public interface OrderService extends IService<Order> {
@@ -19,5 +21,6 @@ public interface OrderService extends IService<Order> {
      * @param orderNo 订单号
      * @return 订单号
      */
+    @DistributedLock(key = "'onboard:' + #employeeId", waitTime = 5, leaseTime = 30)
     String onboard(Long employeeId, Long productId, String orderNo);
 }

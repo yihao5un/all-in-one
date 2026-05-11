@@ -3,6 +3,7 @@ package com.uno.order.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.uno.common.dto.SettlementMsgDTO;
 import com.uno.common.result.Result;
+import com.uno.common.idempotent.Idempotent;
 import com.uno.order.entity.Order;
 import com.uno.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +52,7 @@ public class OrderController {
      * 流程：发送 Half 消息 -> 回调监听器执行本地入职(含 Seata 跨服务调用) -> 本地成功后提交消息 -> 结算中心消费
      */
     @PostMapping("/onboard")
+    @Idempotent(key = "#employeeId", message = "申请已接收，请勿重复点击")
     public Result<Object> onboard(@RequestParam("employeeId") Long employeeId, @RequestParam("productId") Long productId) {
         log.info("📢 [订单中心] 接收到入职申请，准备发送事务消息. EmployeeId: {}", employeeId);
 

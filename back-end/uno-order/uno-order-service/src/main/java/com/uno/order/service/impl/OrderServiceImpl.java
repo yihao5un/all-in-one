@@ -3,6 +3,7 @@ package com.uno.order.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.uno.common.exception.UnoException;
+import com.uno.common.lock.DistributedLock;
 import com.uno.common.result.ResultCodeEnum;
 import com.uno.order.entity.Order;
 import com.uno.order.mapper.OrderMapper;
@@ -23,10 +24,18 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private ProductFeignClient productFeignClient;
 
     @Override
+    @DistributedLock(key = "'onboard:' + #employeeId", waitTime = 5, leaseTime = 30)
     @GlobalTransactional(name = "uno-onboard-flow", rollbackFor = Exception.class)
     public String onboard(Long employeeId, Long productId, String orderNo) {
         log.info("🚀 【入职全链路】开始执行: EmployeeID={}, ProductID={}", employeeId, productId);
         
+        // 业务层幂等：检查该员工是否已有订单 (防止 Redis 幂等失效后的漏网之鱼)
+        Long count = this.baseMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getEmployeeId, employeeId));
+        if (count > 0) {
+            log.warn("⚠️ [业务幂等] 发现重复入职申请, EmployeeId: {}", employeeId);
+            throw new UnoException("该员工已入职，请勿重复操作", ResultCodeEnum.FAIL.getCode());
+        }
+
         // 步骤1: 创建订单 (直接使用传入的订单号)
         Order order = new Order();
         order.setOrderNo(orderNo);

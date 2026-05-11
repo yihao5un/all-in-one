@@ -2,6 +2,7 @@ package com.uno.product.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.uno.common.exception.UnoException;
+import com.uno.common.lock.DistributedLock;
 import com.uno.common.result.ResultCodeEnum;
 import com.uno.product.entity.Product;
 import com.uno.product.mapper.ProductMapper;
@@ -10,11 +11,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @Service
 public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> implements ProductService {
 
     @Override
+    @Idempotent(key = "#productId + ':' + #count", expire = 1, unit = TimeUnit.MINUTES)
+    @DistributedLock(key = "'product:' + #productId", waitTime = 5, leaseTime = 10)
     @Transactional(rollbackFor = Exception.class)
     public void deductQuota(Long productId, Integer count) {
         log.info("【人力资源系统-产品中心】正在扣减名额: ProductID={}, Count={}", productId, count);

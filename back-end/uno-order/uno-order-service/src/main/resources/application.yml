@@ -7,6 +7,12 @@ spring:
     url: jdbc:mysql://127.0.0.1:3306/uno_order?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
     username: root
     password: root
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      password: 
 
 mybatis-plus:
   configuration:

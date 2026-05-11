@@ -1,0 +1,28 @@
+### Phase 4: Redisson 分布式锁并发测试
+# 说明：该测试建议通过快速连续点击以下请求，或使用并发测试工具 (如 ab, wrk, jmeter) 模拟
+# 预期结果：同一 employeeId 的请求，只有一个能成功，其他应返回 "系统繁忙"
+
+### 1. 登录
+POST http://localhost:8080/uno-auth/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=admin&password=123456
+
+> {%
+    client.global.set("auth_token", response.body.data.token);
+%}
+
+### 2. 并发入职测试 (针对同一员工 ID: 1001)
+# 快速点击多次
+POST http://localhost:8080/uno-order/order/onboard
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer {{auth_token}}
+
+employeeId=1002&productId=101&orderNo=ORD2026051000001
+
+### 3. 并发入职测试 (针对同一员工 ID: 1001) - 另一个订单号
+POST http://localhost:8080/uno-order/order/onboard
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer {{auth_token}}
+
+employeeId=1001&productId=1&orderNo=ORD_LOCK_TEST_002

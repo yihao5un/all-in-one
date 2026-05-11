@@ -39,6 +39,7 @@
         <lombok.version>1.18.46</lombok.version>
         <hutool.version>5.8.32</hutool.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
+        <redisson.version>3.37.0</redisson.version>
     </properties>
 
     <!-- 依赖版本管理（不实际引入依赖，只统一版本） -->
