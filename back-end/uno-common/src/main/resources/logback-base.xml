@@ -17,4 +17,7 @@
 
     <logger name="com.uno" level="DEBUG" />
     <logger name="org.springframework" level="INFO" />
+    <logger name="org.springframework.context.support.PostProcessorRegistrationDelegate$BeanPostProcessorChecker" level="ERROR" />
+    <logger name="com.alibaba.nacos.client.naming" level="ERROR" />
+    <logger name="io.seata.spring.annotation.GlobalTransactionScanner" level="ERROR" />
 </configuration>

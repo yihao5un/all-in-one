@@ -36,7 +36,7 @@
         <!-- 生态组件版本 -->
         <!-- 注意：MyBatis-Plus 专门为 Spring Boot 3 提供了 spring-boot3-starter -->
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
-        <lombok.version>1.18.30</lombok.version>
+        <lombok.version>1.18.46</lombok.version>
         <hutool.version>5.8.32</hutool.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
     </properties>

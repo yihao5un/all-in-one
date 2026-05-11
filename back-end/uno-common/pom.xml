@@ -74,6 +74,11 @@
             <artifactId>seata-spring-boot-starter</artifactId>
             <version>1.7.0</version>
         </dependency>
+        <dependency>
+            <groupId>com.caucho</groupId>
+            <artifactId>hessian</artifactId>
+            <version>4.0.66</version>
+        </dependency>
 
         <!-- OpenFeign 远程调用 (支持全局异常拦截解析) -->
         <dependency>
@@ -81,11 +86,5 @@
             <artifactId>spring-cloud-starter-openfeign</artifactId>
         </dependency>
 
-        <!-- RocketMQ 消息队列 (用于最终一致性) -->
-        <dependency>
-            <groupId>org.apache.rocketmq</groupId>
-            <artifactId>rocketmq-spring-boot-starter</artifactId>
-            <version>2.3.0</version>
-        </dependency>
     </dependencies>
 </project>
