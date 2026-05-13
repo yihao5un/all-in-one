@@ -21,6 +21,9 @@ public class SysUser {
     
     // 状态 1:正常 0:禁用
     private Integer status;
+
+    // 角色 ADMIN:管理员 EMPLOYEE:普通员工
+    private String role;
     
     private LocalDateTime createTime;
     

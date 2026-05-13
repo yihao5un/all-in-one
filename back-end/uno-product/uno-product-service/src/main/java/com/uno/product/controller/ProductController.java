@@ -21,6 +21,24 @@ public class ProductController {
         return Result.success(list);
     }
 
+    @PostMapping("/add")
+    public Result<Object> add(@RequestBody Product product) {
+        productService.save(product);
+        return Result.success();
+    }
+
+    @PutMapping("/update")
+    public Result<Object> update(@RequestBody Product product) {
+        productService.updateById(product);
+        return Result.success();
+    }
+
+    @DeleteMapping("/{id}")
+    public Result<Object> delete(@PathVariable("id") Long id) {
+        productService.removeById(id);
+        return Result.success();
+    }
+
     @PostMapping("/deduct")
     public Result<Object> deduct(@RequestParam("productId") Long productId, @RequestParam("count") Integer count) {
         productService.deductQuota(productId, count);

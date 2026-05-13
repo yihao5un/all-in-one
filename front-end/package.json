@@ -1,0 +1,28 @@
+{
+  "name": "uno-hr-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "axios": "^1.6.0",
+    "element-plus": "^2.4.0",
+    "pinia": "^2.1.0",
+    "vue": "^3.3.0",
+    "vue-i18n": "^9.14.4",
+    "vue-router": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@vitejs/plugin-vue": "^4.4.0",
+    "sass": "^1.69.0",
+    "typescript": "^5.2.0",
+    "vite": "^4.5.0",
+    "vue-tsc": "^2.2.0"
+  }
+}

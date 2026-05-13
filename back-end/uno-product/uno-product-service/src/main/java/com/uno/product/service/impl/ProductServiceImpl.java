@@ -2,6 +2,7 @@ package com.uno.product.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.uno.common.exception.UnoException;
+import com.uno.common.idempotent.Idempotent;
 import com.uno.common.lock.DistributedLock;
 import com.uno.common.result.ResultCodeEnum;
 import com.uno.product.entity.Product;

@@ -2,3 +2,4 @@ name: uno-project
 
 include:
   - docker-compose.infra.yml
+  - docker-compose.ai.yml

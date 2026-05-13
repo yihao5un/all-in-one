@@ -4,9 +4,24 @@ server:
 spring:
   cloud:
     gateway:
+      routes:
+        - id: uno-auth
+          uri: lb://uno-auth
+          predicates:
+            - Path=/auth/**
+        - id: uno-order
+          uri: lb://uno-order
+          predicates:
+            - Path=/order/**
+        - id: uno-product
+          uri: lb://uno-product
+          predicates:
+            - Path=/product/**
+        - id: uno-settlement
+          uri: lb://uno-settlement
+          predicates:
+            - Path=/settlement/**
       discovery:
         locator:
-          # 开启基于服务发现的自动化路由 (通过 serviceId 访问)
           enabled: true
-          # 服务名转为小写 (推荐)
           lower-case-service-id: true

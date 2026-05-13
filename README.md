@@ -1,27 +1,32 @@
-# 人力资源系统 — Demo 项目可行性分析
+# 外服人事调派订单
 
-## 结论：✅ 完全可行
+## 一、项目业务概览
 
-> [!IMPORTANT]
-> MacBook M1 Max / 64GB / 1TB + OrbStack 完全能跑起这套架构。预估总内存占用 **15–20GB**，占总内存 25–30%，留有充足余量。
-
----
-
-## 一、项目业务概览（来自面试笔记）
+> 面试笔记
+>
+> /Users/yihao/Folder/Work/GitHub/Obsidian/Sun Yihao’s Pages/04.Java/02.Interview/00.Project/00.外服人事调派订单系统.md
+>
+> 可以结合 02.Interview 文件夹下的内容进行开发
 
 ```
-入职 / 调岗创建
-  → 员工中心校验业务状态
-  → Seata AT 开启全局事务
-  → 更新订单状态
+入职订单创建
+  → Gateway JWT 鉴权
+  → 订单中心发送 RocketMQ 事务半消息
+  → MQ 本地事务中开启 Seata AT 全局事务
+  → 创建订单并推进状态 CREATED → PROCESSING
   → 产品中心扣减产品名额 / 服务额度
+  → 订单进入 PENDING_PAYMENT
   → Seata 提交 / 回滚
-  → 发送 RocketMQ 结算消息
+  → RocketMQ 提交结算消息
   → 薪资结算中心消费消息
-  → 生成账单、计算薪资
+  → 幂等生成 PENDING 账单并计算金额
+  → 用户支付账单后，账单 PAID 并反写订单 SETTLED
 ```
 
 **3 个核心微服务**：订单中心、产品中心（名额/福利管理）、薪资结算中心
+
+> [!NOTE]
+> 当前已落地的订单类型是 `ONBOARD` 入职。调动、离职后续应作为独立业务流扩展，不能复用入职扣减产品名额的链路硬套。
 
 ---
 
@@ -310,10 +315,14 @@ graph TB
 - [x] Seata AT 分布式事务：入职 = 订单创建 + 名额扣减
 - [x] RocketMQ 事务消息：入职成功 → 发送结算消息 (实现 ID 预生成策略)
 - [x] 结算消费者：幂等消费 + 唯一约束 + 异常防阻塞逻辑
+- [x] 订单状态闭环：`CREATED -> PROCESSING -> PENDING_PAYMENT -> SETTLED`
+- [x] 支付闭环：账单 `PENDING -> PAID` 后通过 Feign 反写订单 `SETTLED`
+- [x] 补生成账单兜底入口：仅接收 `orderNo`，后端回查订单服务并校验待支付状态
 
 ### Phase 4：高并发与幂等加固（2-3 天）
 - [x] Redisson 分布式锁：解决入职抢单并发问题 (Done)
 - [x] 接口幂等性通用组件设计 (Done)
+- [x] 重复入职前置拦截：同一员工已有入职订单时，不再进入 MQ/Seata 回滚流程
 - [ ] ShardingSphere 分库分表配置
 - [ ] 千万级 Mock 数据脚本
 - [ ] ES 搜索 + 数据同步
@@ -322,9 +331,11 @@ graph TB
 - [ ] CompletableFuture 异步并行
 
 ### Phase 5：前端 & AI（2-3 天）
-- [ ] Vue3 管理后台（订单、产品、结算页面）
-- [ ] FastAPI + LangGraph AI Agent
+- [x] Vue3 管理后台（登录、仪表盘、订单、产品、结算、员工、AI 入口）
+- [x] Element Plus + vue-i18n 国际化接入，系统名统一为“外服人事调派订单系统”
+- [x] FastAPI + LangGraph AI Agent 骨架
 - [ ] RAG 知识库问答
+- [ ] AI 工具调用鉴权与真实业务查询增强
 
 ### Phase 6：可观测性（可选，1-2 天）
 - [ ] ELK 日志收集
@@ -333,15 +344,208 @@ graph TB
 
 ---
 
-## 七、OrbStack 特别注意事项
+## 七、当前落地架构与开发规范
 
-> [!NOTE]
-> OrbStack 比 Docker Desktop 在 M1 上性能更好、资源占用更少，是最佳选择。
+### 7.1 微服务骨架
 
-1. **ARM 镜像兼容**：所有主流中间件都有 `linux/arm64` 镜像，无需模拟 x86
-2. **网络模式**：OrbStack 支持 `host.docker.internal`，服务间通信没问题
-3. **文件系统**：OrbStack 的 VirtioFS 比 Docker Desktop 的文件映射快很多
-4. **资源限制**：建议在 OrbStack 设置中给 VM 分配 **24-32GB 内存**，留一半给 macOS
+项目采用 Spring Boot 3 + Spring Cloud Alibaba + Java 21 的父工程结构，模块统一以 `uno-` 为前缀：
+
+- `uno-common`：公共返回体、异常、JWT、Redisson 分布式锁、幂等组件、结算消息 DTO。
+- `uno-gateway`：统一入口、Nacos 服务发现、JWT 鉴权、CORS。
+- `uno-auth`：登录、JWT 签发、员工账号管理。当前阶段复用 `sys_user` 作为员工主数据。
+- `uno-order`：订单创建、状态推进、Seata 事务入口、RocketMQ 事务消息本地事务。
+- `uno-product`：产品/福利管理、产品名额扣减、锁与幂等。
+- `uno-settlement`：结算账单生成、支付确认、补生成账单兜底入口。
+
+统一开发规范：
+
+- Web 层统一返回 `Result<T>`。
+- 业务异常统一抛 `UnoException`，由全局异常处理器转为标准响应。
+- 跨服务同步调用使用 OpenFeign。
+- 服务注册发现使用 Nacos。
+- 订单与产品的强一致链路使用 Seata AT。
+- 订单成功后的账单生成使用 RocketMQ 事务消息实现最终一致。
+
+### 7.2 认证与网关链路
+
+认证中心定位为统一看门人：
+
+```text
+前端登录
+  -> POST /api/auth/login
+  -> Vite proxy 转发到 Gateway 8080
+  -> Gateway 白名单放行 /auth/login
+  -> uno-auth 校验 sys_user
+  -> JwtUtils 签发 JWT
+  -> 前端保存 token
+  -> 后续请求统一携带 Authorization: Bearer <token>
+```
+
+当前网关路由：
+
+- `/auth/**` -> `uno-auth`
+- `/order/**` -> `uno-order`
+- `/product/**` -> `uno-product`
+- `/settlement/**` -> `uno-settlement`
+
+### 7.3 当前落地数据库
+
+当前代码使用演示库名：
+
+| 数据库 | 归属服务 | 当前主要表 |
+|--------|----------|------------|
+| `uno_auth` | 认证/员工账号 | `sys_user` |
+| `uno_order` | 订单中心 | `t_order`, `undo_log` |
+| `uno_product` | 产品中心 | `t_product`, `undo_log` |
+| `uno_settlement` | 结算中心 | `t_bill`, `undo_log` |
+
+核心字段：
+
+```sql
+-- uno_auth.sys_user
+id, username, password, real_name, status, role, create_time, update_time
+
+-- uno_order.t_order
+id, order_no, employee_id, product_id, order_type, status, remark, create_time, update_time
+
+-- uno_product.t_product
+id, product_name, total_quota, used_quota, status, create_time, update_time
+
+-- uno_settlement.t_bill
+id, bill_no, order_no, employee_id, amount, bill_type, status, remark, create_time, update_time
+```
+
+关键约束：
+
+- `t_order.uk_order_no`：订单号唯一。
+- `t_bill.uk_order_no`：同一订单只允许一个账单，用于消费者幂等兜底。
+- `undo_log`：Seata AT 模式回滚日志。
+
+旧库迁移：
+
+```sql
+ALTER TABLE uno_order.t_order
+  ADD COLUMN product_id bigint DEFAULT NULL COMMENT '关联产品/福利ID' AFTER employee_id;
+
+ALTER TABLE uno_settlement.t_bill DROP INDEX idx_order_no;
+ALTER TABLE uno_settlement.t_bill ADD UNIQUE KEY uk_order_no (order_no);
+```
+
+### 7.4 面试扩展数据库模型
+
+后续若要贴近企业外服场景，可在当前演示表基础上扩展：
+
+- 订单中心：`t_company`, `t_employee`, `t_local_message`。
+- 产品中心：`t_product_quota`, `t_rate_rule`。
+- 结算中心：`t_salary_detail`, `t_salary_detail_history`, `t_charge`, `t_invoice`, `t_idempotent`。
+
+扩展设计原则：
+
+- 使用 `company_id` 作为企业维度分片键。
+- 订单号可携带 company 基因，便于 ShardingSphere 分库分表。
+- 金额、费率、账单类型后续应迁移到账单规则表，例如 `t_bill_rule(product_id, bill_type, amount, currency, status)`。
+- 收费、开票类外部三方调用应使用“分布式锁 + 唯一约束 + 状态机 + 结果回查”组合兜底。
+
+### 7.5 当前核心数据流
+
+```text
+前端创建入职订单
+  -> Gateway JWT 鉴权
+  -> uno-order 发送 RocketMQ 事务半消息
+  -> OrderTransactionListener 执行本地事务
+  -> Seata AT 开启全局事务
+  -> uno_order.t_order 插入 CREATED
+  -> 订单更新 PROCESSING
+  -> Feign 调 uno-product 扣减 t_product.used_quota
+  -> 订单更新 PENDING_PAYMENT
+  -> Seata 提交
+  -> RocketMQ commit
+  -> uno-settlement 消费消息
+  -> t_bill 幂等生成 PENDING 账单
+  -> 用户标记账单已支付
+  -> t_bill 更新 PAID
+  -> Feign 反写订单 SETTLED
+```
+
+状态机语义：
+
+```text
+CREATED -> PROCESSING -> PENDING_PAYMENT -> SETTLED -> CLOSED
+```
+
+- `PENDING_PAYMENT`：订单核心链路已完成，产品名额已扣减，账单待支付。
+- `SETTLED`：账单已支付，订单结算闭环完成。
+
+### 7.6 Seata 与 RocketMQ 边界
+
+- Seata AT：负责订单中心和产品中心之间的同步强一致链路。
+- RocketMQ：负责核心业务成功后的结算通知，解耦结算中心并保证最终一致。
+- 事务消息入口可以先发送 Half Message，本地事务执行 Seata 核心链路；只有本地事务成功后，消息才 commit 给结算中心消费。
+- 结算消费者通过 `orderNo` 幂等检查和数据库唯一约束防重复生成账单。
+
+### 7.7 结算与补生成账单
+
+正常账单由 MQ 自动生成，结算页的“补生成账单”不是日常入口，只用于：
+
+- MQ 消息未被消费。
+- 历史订单迁移后缺账单。
+- 人工修复待支付订单账单数据。
+
+补账单接口：
+
+```http
+POST /settlement/orders/{orderNo}/rebuild-bill
+```
+
+后端校验：
+
+- 订单存在。
+- 订单类型为 `ONBOARD`。
+- 订单状态为 `PENDING_PAYMENT`。
+- 该订单尚未存在账单。
+
+### 7.8 前端与 AI
+
+前端管理台能力：
+
+- 登录、JWT 持久化、请求拦截。
+- 仪表盘、订单管理、产品配额、薪资结算、员工管理、AI 聊天入口。
+- Element Plus + vue-i18n 国际化，分页等组件使用 Element Plus locale。
+- 系统名、面包屑、浏览器标题统一为“外服人事调派订单系统”。
+
+AI 服务：
+
+- FastAPI 入口。
+- LangGraph Agent 骨架。
+- RAG 检索模块骨架。
+- 工具调用包括订单查询、近期订单、员工资格检查、HR 知识库查询。
+
+### 7.9 联调步骤
+
+1. 登录 `admin / 123456`。
+2. 进入产品配额，确认产品 `101/102` 存在且有剩余额度。
+3. 进入订单管理，创建入职订单，选择员工和产品。
+4. 订单应先显示“待支付”，并展示产品名。
+5. 产品 `used_quota` 增加 1。
+6. 进入薪资结算，账单应自动出现，状态为“待支付”，类型为“入职服务费”。
+7. 点击“标记为已支付”，账单变“已支付”，订单状态变“已结算”。
+8. 同一员工再次创建入职订单，应只提示“该员工已存在入职订单，不能重复入职”。
+
+### 7.10 验证命令
+
+后端编译：
+
+```bash
+cd /Users/yihao/Folder/Work/GitHub/all-in-one/back-end
+mvn -pl uno-order/uno-order-service,uno-settlement/uno-settlement-service -am -DskipTests compile
+```
+
+前端构建：
+
+```bash
+cd /Users/yihao/Folder/Work/GitHub/all-in-one/front-end
+npm run build
+```
 
 ---
 
@@ -396,6 +600,3 @@ END$$
 | **实施复杂度** | ⚠️ 中等偏高，但分阶段可控 |
 | **学习价值** | ✅ 极高，每个技术点都有实战场景 |
 | **预估总工期** | 10-15 天（全职投入） |
-
-> [!TIP]
-> 建议从 **Phase 1 + Phase 2** 开始，先跑通基础设施和骨架，再逐步叠加高级特性。这样可以快速看到成果，保持学习动力。

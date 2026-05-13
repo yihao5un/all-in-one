@@ -27,37 +27,73 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @DistributedLock(key = "'onboard:' + #employeeId", waitTime = 5, leaseTime = 30)
     @GlobalTransactional(name = "uno-onboard-flow", rollbackFor = Exception.class)
     public String onboard(Long employeeId, Long productId, String orderNo) {
-        log.info("🚀 【入职全链路】开始执行: EmployeeID={}, ProductID={}", employeeId, productId);
+        log.info("【入职全链路】开始执行: EmployeeID={}, ProductID={}, OrderNo={}", employeeId, productId, orderNo);
+        if (employeeId == null || productId == null || orderNo == null || orderNo.isBlank()) {
+            throw new UnoException("员工、产品和订单号不能为空", ResultCodeEnum.PARAM_ERROR.getCode());
+        }
         
-        // 业务层幂等：检查该员工是否已有订单 (防止 Redis 幂等失效后的漏网之鱼)
+        // 1. 业务层幂等：检查该员工是否已有订单，防止 Redis 幂等失效后的漏网之鱼。
         Long count = this.baseMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getEmployeeId, employeeId));
         if (count > 0) {
-            log.warn("⚠️ [业务幂等] 发现重复入职申请, EmployeeId: {}", employeeId);
+            log.warn("[业务幂等] 发现重复入职申请, EmployeeId: {}", employeeId);
             throw new UnoException("该员工已入职，请勿重复操作", ResultCodeEnum.FAIL.getCode());
         }
 
-        // 步骤1: 创建订单 (直接使用传入的订单号)
+        // 2. 创建订单。状态先落 CREATED，后续通过状态机推进。
         Order order = new Order();
         order.setOrderNo(orderNo);
         order.setEmployeeId(employeeId);
+        order.setProductId(productId);
         order.setOrderType("ONBOARD");
         order.setStatus("CREATED");
-        order.setRemark("Seata 分布式事务测试入职单");
+        order.setRemark("入职调派订单：等待产品名额扣减");
         this.save(order);
-        log.info("✅ 步骤1: 订单已创建 - {}", orderNo);
+        log.info("步骤1: 订单已创建 - {}", orderNo);
 
-        // 2. 扣减福利名额 (远程调用 - 另一个微服务，另一个数据库)
-        log.info("➡️ 步骤2: 正在通过 Feign 调用产品中心扣减名额...");
-        productFeignClient.deduct(productId, 1);
+        // 3. 订单进入处理中，并在同一个 Seata 全局事务中扣减产品名额。
+        order.setStatus("PROCESSING");
+        order.setRemark("入职调派订单：正在扣减产品名额");
+        this.updateById(order);
+        log.info("步骤2: 订单进入 PROCESSING，准备通过 Feign 调用产品中心扣减名额...");
+        com.uno.common.result.Result<Object> deductResult = productFeignClient.deduct(productId, 1);
+        if (deductResult.getCode() != 200) {
+            throw new com.uno.common.exception.UnoException(deductResult.getMessage(), deductResult.getCode());
+        }
 
         // 模拟异常：使用 equals 比较对象数值，避免 == 的缓存坑
         if (Long.valueOf(999).equals(productId)) {
-            log.error("❌ 触发模拟异常，准备全局回滚！");
+            log.error("触发模拟异常，准备全局回滚！");
             throw new UnoException("【模拟异常】Seata 应该让刚才创建的订单也消失！");
         }
 
-        log.info("🎉 【入职全链路】执行成功！分布式事务已提交。");
+        // 4. 核心强一致链路完成，订单进入待支付状态。RocketMQ commit 后由结算中心异步生成账单。
+        order.setStatus("PENDING_PAYMENT");
+        order.setRemark("入职调派订单：产品名额已扣减，等待账单支付");
+        this.updateById(order);
+        log.info("【入职全链路】执行成功！订单与产品名额已通过 Seata AT 保持一致。");
         return orderNo;
+    }
+
+    @Override
+    public boolean existsByOrderNo(String orderNo) {
+        return this.count(new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo)) > 0;
+    }
+
+    @Override
+    public boolean existsByEmployeeId(Long employeeId) {
+        return this.count(new LambdaQueryWrapper<Order>().eq(Order::getEmployeeId, employeeId)) > 0;
+    }
+
+    @Override
+    public Order markSettled(String orderNo) {
+        Order order = this.getOne(new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo));
+        if (order == null) {
+            throw new UnoException("订单不存在", ResultCodeEnum.FAIL.getCode());
+        }
+        order.setStatus("SETTLED");
+        order.setRemark("入职调派订单：账单已支付，订单已结算");
+        this.updateById(order);
+        return order;
     }
 
     @Override
@@ -71,11 +107,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         String currentStatus = order.getStatus();
         
-        // 简易状态机流转设计：CREATED -> PROCESSING -> SETTLED -> CLOSED
+        // 简易状态机流转设计：CREATED -> PROCESSING -> PENDING_PAYMENT -> SETTLED -> CLOSED
         // 真实面试时，这里可以说使用的是状态模式(State Pattern)或者是 Spring Statemachine
         if ("CREATED".equals(currentStatus)) {
             order.setStatus("PROCESSING");
         } else if ("PROCESSING".equals(currentStatus)) {
+            order.setStatus("PENDING_PAYMENT");
+        } else if ("PENDING_PAYMENT".equals(currentStatus)) {
             order.setStatus("SETTLED");
         } else if ("SETTLED".equals(currentStatus)) {
             order.setStatus("CLOSED");

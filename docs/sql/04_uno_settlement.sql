@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS `t_bill` (
   `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_bill_no` (`bill_no`),
-  KEY `idx_order_no` (`order_no`)
+  UNIQUE KEY `uk_order_no` (`order_no`)
 ) ENGINE=InnoDB AUTO_INCREMENT=100 DEFAULT CHARSET=utf8mb4 COMMENT='薪资结算中心-账单表';

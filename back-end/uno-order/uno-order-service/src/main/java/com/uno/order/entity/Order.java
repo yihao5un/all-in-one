@@ -16,6 +16,8 @@ public class Order {
     private String orderNo;
     
     private Long employeeId;
+
+    private Long productId;
     
     private String orderType;
     

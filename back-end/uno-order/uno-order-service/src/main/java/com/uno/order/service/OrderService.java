@@ -1,7 +1,6 @@
 package com.uno.order.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.uno.common.idempotent.Idempotent;
 import com.uno.common.lock.DistributedLock;
 import com.uno.order.entity.Order;
 
@@ -23,4 +22,19 @@ public interface OrderService extends IService<Order> {
      */
     @DistributedLock(key = "'onboard:' + #employeeId", waitTime = 5, leaseTime = 30)
     String onboard(Long employeeId, Long productId, String orderNo);
+
+    /**
+     * 查询订单是否已成功落库，用于 RocketMQ 事务消息回查。
+     */
+    boolean existsByOrderNo(String orderNo);
+
+    /**
+     * 查询员工是否已有入职订单。
+     */
+    boolean existsByEmployeeId(Long employeeId);
+
+    /**
+     * 支付完成后关闭订单结算链路。
+     */
+    Order markSettled(String orderNo);
 }

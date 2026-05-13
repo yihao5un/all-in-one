@@ -19,23 +19,30 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
     public String login(String username, String password) {
         log.info("【人力资源系统】正在进行登录校验: {}", username);
         
-        // 1. 根据用户名从数据库查询
+        // 1. 根据用户名 from 数据库查询
         SysUser sysUser = this.getOne(new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username));
         if (sysUser == null) {
-            throw new UnoException("账号不存在", ResultCodeEnum.FAIL.getCode());
+            throw new UnoException(ResultCodeEnum.USER_NOT_FOUND);
         }
         
-        // 2. 校验密码（这里为了快速跑通 Demo使用明文，实际人力资源生产系统需结合 BCryptPasswordEncoder）
+        // 2. 校验密码
         if (!sysUser.getPassword().equals(password)) {
-            throw new UnoException("密码错误", ResultCodeEnum.FAIL.getCode());
+            throw new UnoException(ResultCodeEnum.PASSWORD_ERROR);
         }
         
         // 3. 账号状态校验
         if (sysUser.getStatus() != 1) {
-            throw new UnoException("账号已被禁用，请联系HR系统管理员", ResultCodeEnum.FAIL.getCode());
+            throw new UnoException(ResultCodeEnum.ACCOUNT_DISABLED);
         }
         
         // 4. 签发并发放全系统通用的 JWT Token
         return JwtUtils.generateToken(sysUser.getId().toString(), sysUser.getUsername());
+    }
+
+    @Override
+    public void logout() {
+        // 在 JWT 架构中，登出主要是前端删除 Token
+        // 后端如果需要更安全，可以在这里将当前 Token 加入 Redis 黑名单
+        log.info("【人力资源系统】用户登出成功");
     }
 }

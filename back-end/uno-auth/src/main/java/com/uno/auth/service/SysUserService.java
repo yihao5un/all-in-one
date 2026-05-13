@@ -12,4 +12,9 @@ public interface SysUserService extends IService<SysUser> {
      * @return JWT Token
      */
     String login(String username, String password);
+
+    /**
+     * 登出逻辑
+     */
+    void logout();
 }

@@ -1,6 +1,5 @@
 package com.uno.order.rocketmq;
 
-import com.alibaba.fastjson.JSON;
 import com.uno.common.dto.SettlementMsgDTO;
 import com.uno.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
@@ -29,18 +28,19 @@ public class OrderTransactionListener implements RocketMQLocalTransactionListene
     @Override
     public RocketMQLocalTransactionState executeLocalTransaction(Message msg, Object arg) {
         try {
-            // 从参数中获取业务数据
             SettlementMsgDTO settlementMsg = (SettlementMsgDTO) arg;
+            if (settlementMsg == null || settlementMsg.getOrderNo() == null) {
+                log.error("[MQ回调] 结算消息为空或订单号为空，回滚消息");
+                return RocketMQLocalTransactionState.ROLLBACK;
+            }
             
-            // 核心逻辑：执行本地入职事务 (包含 Seata 全局事务)
-            // 此时 settlementMsg.getOrderNo() 已经有值了！
             orderService.onboard(settlementMsg.getEmployeeId(), settlementMsg.getProductId(), settlementMsg.getOrderNo()); 
-             
-            log.info("✅ [MQ回调] 本地事务执行成功，订单号: {}，准备提交消息", settlementMsg.getOrderNo());
+
+            log.info("[MQ回调] 本地事务执行成功，订单号: {}，准备提交消息", settlementMsg.getOrderNo());
             return RocketMQLocalTransactionState.COMMIT;
             
         } catch (Exception e) {
-            log.error("❌ [MQ回调] 本地事务执行失败，回滚消息: {}", e.getMessage());
+            log.error("[MQ回调] 本地事务执行失败，回滚消息: {}", e.getMessage());
             return RocketMQLocalTransactionState.ROLLBACK;
         }
     }
@@ -50,8 +50,13 @@ public class OrderTransactionListener implements RocketMQLocalTransactionListene
      */
     @Override
     public RocketMQLocalTransactionState checkLocalTransaction(Message msg) {
-        log.info("🔍 [MQ回查] 正在检查本地事务状态...");
-        // 实际开发中，这里应该根据订单号去查询数据库，确认订单是否已创建成功
-        return RocketMQLocalTransactionState.COMMIT;
+        SettlementMsgDTO settlementMsg = (SettlementMsgDTO) msg.getPayload();
+        String orderNo = settlementMsg.getOrderNo();
+        log.info("🔍 [MQ回查] 正在检查本地事务状态: OrderNo={}", orderNo);
+
+        if (orderService.existsByOrderNo(orderNo)) {
+            return RocketMQLocalTransactionState.COMMIT;
+        }
+        return RocketMQLocalTransactionState.ROLLBACK;
     }
 }
