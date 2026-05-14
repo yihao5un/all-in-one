@@ -1,25 +1,140 @@
-### Phase 3: RocketMQ 事务消息 + Seata 全链路入职测试
+### 05 RocketMQ 事务消息全链路自测
+### 目标：验证订单中心发送事务消息，监听器执行 Seata 本地事务，结算中心消费生成账单。
+### 这是最贴近面试描述的主链路：入职订单 -> 产品扣减 -> 异步账单 -> 支付反写订单。
 
-#### 1. 触发异步入职流程
-# 该接口会发送 MQ 事务消息 -> 监听器回调执行 Seata 事务(订单创建+扣减名额) -> 成功后结算中心异步生成账单
-POST http://localhost:8083/order/onboard?employeeId=1001&productId=101
+@baseUrl = http://[::1]:8080
+@productId = 101
+
+### 1. 登录获取 Token
+POST {{baseUrl}}/auth/login
 Content-Type: application/x-www-form-urlencoded
 
-###
+username=admin&password=123456
 
-#### 2. 验证订单中心 (库: uno_order)
-# 预期：订单已创建成功
-GET http://localhost:8083/order/ONBC84CC728C058
-Accept: application/json
+> {%
+    client.test("登录成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(!!response.body.data.access_token, "应返回 data.access_token");
+    });
+    client.global.set("auth_token", response.body.data.access_token);
+%}
 
-###
+### 2. 记录产品 101 当前 used_quota
+GET {{baseUrl}}/product/list
+Authorization: Bearer {{auth_token}}
 
-#### 3. 验证产品中心 (库: uno_product)
-# 预期：ID为1的产品名额已被扣减 1
-# 可以直接去数据库看 t_product 表的 used_quota 字段
+> {%
+    const product = response.body.data.find(item => item.id === 101);
+    client.assert(!!product, "应存在产品 101");
+    client.global.set("mq_product_101_before", String(product.usedQuota));
+    client.log("MQ 全链路前 used_quota = " + product.usedQuota);
+%}
 
-###
+### 3. 发起入职流程
+### 预期：返回 orderNo 和 WAIT_EXTERNAL_SYNC。
+POST {{baseUrl}}/order/onboard?employeeId={{$timestamp}}&productId={{productId}}
+Authorization: Bearer {{auth_token}}
 
-#### 4. 验证结算中心 (库: uno_settlement)
-# 预期：t_bill 表中出现了一条关联该订单的账单记录，状态为 PENDING
-# 说明 RocketMQ 消息投递成功且消费成功
+> {%
+    client.test("入职请求提交成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.status === "WAIT_EXTERNAL_SYNC", "应返回 WAIT_EXTERNAL_SYNC");
+    });
+    client.global.set("mq_order_no", response.body.data.orderNo);
+    client.log("MQ 全链路订单号: " + response.body.data.orderNo);
+%}
+
+### 4. 查询新订单
+### 预期：三方同步成功后，订单状态为 PENDING_PAYMENT，thirdSyncStatus 为 SUCCESS。
+GET {{baseUrl}}/order/{{mq_order_no}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("订单已创建并进入待支付", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.status === "PENDING_PAYMENT", "订单状态应为 PENDING_PAYMENT");
+        client.assert(response.body.data.thirdSyncStatus === "SUCCESS", "三方同步状态应为 SUCCESS");
+    });
+%}
+
+### 5. 查询产品扣减结果
+### 预期：产品 101 used_quota 比步骤 2 增加 1。
+GET {{baseUrl}}/product/list
+Authorization: Bearer {{auth_token}}
+
+> {%
+    const before = Number(client.global.get("mq_product_101_before"));
+    const product = response.body.data.find(item => item.id === 101);
+    client.test("产品名额已扣减", function () {
+        client.assert(product.usedQuota === before + 1, "used_quota 应增加 1");
+    });
+%}
+
+### 6. 查询账单列表，找到当前订单账单
+### 预期：存在一条 orderNo 等于步骤 3 返回值的账单，状态 PENDING，金额 5000.00。
+GET {{baseUrl}}/settlement/list
+Authorization: Bearer {{auth_token}}
+
+> {%
+    const orderNo = client.global.get("mq_order_no");
+    const bill = response.body.data.find(item => item.orderNo === orderNo);
+    client.test("结算中心已消费消息并生成账单", function () {
+        client.assert(!!bill, "应存在当前订单账单");
+        client.assert(bill.status === "PENDING", "账单状态应为 PENDING");
+        client.assert(Number(bill.amount) === 5000, "账单金额应为 5000.00");
+    });
+    client.global.set("mq_bill_no", bill.billNo);
+    client.log("MQ 全链路账单号: " + bill.billNo);
+%}
+
+### 7. 支付账单
+### 预期：账单状态变为 PAID，并通过 Feign 反写订单为 SETTLED。
+POST {{baseUrl}}/settlement/{{mq_bill_no}}/pay
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("账单支付成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.status === "PAID", "账单状态应为 PAID");
+    });
+%}
+
+### 8. 查询订单最终状态
+### 预期：SETTLED。
+GET {{baseUrl}}/order/{{mq_order_no}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("订单已结算", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.status === "SETTLED", "订单状态应为 SETTLED");
+    });
+%}
+
+### 9. 三方同步失败用例
+### employeeId 以 998 结尾时，mock 三方接口返回 {"code":"503","message":"第三方供应商接口暂时不可用"}。
+### 预期：内部订单和产品链路先成功，三方同步多次重试后订单进入 SYNC_FAILED，不生成账单。
+POST {{baseUrl}}/order/onboard?employeeId={{$timestamp}}998&productId=101
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("三方失败用例已进入等待同步", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.data.status === "WAIT_EXTERNAL_SYNC", "应先进入等待三方同步状态");
+    });
+    client.global.set("mq_external_failed_order_no", response.body.data.orderNo);
+%}
+
+### 10. 查询三方失败用例订单
+### RocketMQ 会自动重试，最终失败后预期 status=SYNC_FAILED，thirdSyncStatus=FAILED。
+GET {{baseUrl}}/order/{{mq_external_failed_order_no}}
+Authorization: Bearer {{auth_token}}
+
+### 11. 人工补偿：重新投递三方同步消息
+### 如果三方恢复，可调用此接口；当前 mock 规则下 employeeId 以 998 结尾会继续失败。
+POST {{baseUrl}}/order/{{mq_external_failed_order_no}}/external-sync/retry
+Authorization: Bearer {{auth_token}}

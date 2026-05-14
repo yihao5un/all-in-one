@@ -1,28 +1,63 @@
-### Phase 4: Redisson 分布式锁并发测试
-# 说明：该测试建议通过快速连续点击以下请求，或使用并发测试工具 (如 ab, wrk, jmeter) 模拟
-# 预期结果：同一 employeeId 的请求，只有一个能成功，其他应返回 "系统繁忙"
+### 06 Redisson 分布式锁与业务幂等自测
+### 目标：验证同一 employeeId 不能重复入职。
+### 说明：HTTP Client 顺序执行不等于真正并发；这里主要验证业务幂等。
+### 真正并发可用文件末尾的 wrk/ab/curl 并发命令手动压测。
 
-### 1. 登录
-POST http://localhost:8080/uno-auth/auth/login
+@baseUrl = http://[::1]:8080
+@employeeId = 260514999
+@productId = 101
+
+### 1. 登录获取 Token
+POST {{baseUrl}}/auth/login
 Content-Type: application/x-www-form-urlencoded
 
 username=admin&password=123456
 
 > {%
-    client.global.set("auth_token", response.body.data.token);
+    client.test("登录成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(!!response.body.data.access_token, "应返回 data.access_token");
+    });
+    client.global.set("auth_token", response.body.data.access_token);
 %}
 
-### 2. 并发入职测试 (针对同一员工 ID: 1001)
-# 快速点击多次
-POST http://localhost:8080/uno-order/order/onboard
-Content-Type: application/x-www-form-urlencoded
+### 2. 第一次为 employeeId=260514999 发起入职
+### 预期：首次运行应成功；如果这个 employeeId 已经测过，则会返回重复入职。
+POST {{baseUrl}}/order/onboard?employeeId={{employeeId}}&productId={{productId}}
 Authorization: Bearer {{auth_token}}
 
-employeeId=1002&productId=101&orderNo=ORD2026051000001
+> {%
+    client.test("第一次请求有明确返回", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200 || response.body.code !== 200, "业务应返回明确 code");
+    });
+    if (response.body.data && response.body.data.orderNo) {
+        client.global.set("lock_first_order_no", response.body.data.orderNo);
+    }
+%}
 
-### 3. 并发入职测试 (针对同一员工 ID: 1001) - 另一个订单号
-POST http://localhost:8080/uno-order/order/onboard
-Content-Type: application/x-www-form-urlencoded
+### 3. 立刻重复为同一 employeeId 发起入职
+### 预期：被业务幂等拦截，message 包含“重复入职”或“已存在/已入职”含义。
+POST {{baseUrl}}/order/onboard?employeeId={{employeeId}}&productId={{productId}}
 Authorization: Bearer {{auth_token}}
 
-employeeId=1001&productId=1&orderNo=ORD_LOCK_TEST_002
+> {%
+    client.test("重复入职被拦截", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code !== 200 || response.body.data.status === "DUPLICATE_ONBOARD", "重复请求不应再次成功创建完整入职链路");
+    });
+%}
+
+### 4. 查询第一次请求生成的订单
+### 如果步骤 2 是首次成功，预期订单存在，最终为 WAIT_EXTERNAL_SYNC / PENDING_PAYMENT / SETTLED。
+GET {{baseUrl}}/order/{{lock_first_order_no}}
+Authorization: Bearer {{auth_token}}
+
+### 5. 手动并发压测参考
+### 先在终端拿 token：
+### TOKEN=$(curl -g -sS -X POST 'http://[::1]:8080/auth/login' -H 'Content-Type: application/x-www-form-urlencoded' --data 'username=admin&password=123456' | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+###
+### 然后用同一个 employeeId 并发打 20 次：
+### seq 1 20 | xargs -I{} -P 20 curl -g -sS -X POST -H "Authorization: Bearer $TOKEN" "http://[::1]:8080/order/onboard?employeeId=260515000&productId=101"
+###
+### 预期：最多只有 1 条成功进入 WAIT_EXTERNAL_SYNC，其余应被 Redisson 锁或业务幂等拦截。

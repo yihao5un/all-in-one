@@ -19,11 +19,11 @@ import java.util.concurrent.TimeUnit;
 public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> implements ProductService {
 
     @Override
-    @Idempotent(key = "#productId + ':' + #count", expire = 1, unit = TimeUnit.MINUTES)
+    @Idempotent(key = "#bizNo", expire = 1, unit = TimeUnit.DAYS)
     @DistributedLock(key = "'product:' + #productId", waitTime = 5, leaseTime = 10)
     @Transactional(rollbackFor = Exception.class)
-    public void deductQuota(Long productId, Integer count) {
-        log.info("【人力资源系统-产品中心】正在扣减名额: ProductID={}, Count={}", productId, count);
+    public void deductQuota(Long productId, Integer count, String bizNo) {
+        log.info("【人力资源系统-产品中心】正在扣减名额: ProductID={}, Count={}, BizNo={}", productId, count, bizNo);
         
         Product product = this.getById(productId);
         if (product == null) {

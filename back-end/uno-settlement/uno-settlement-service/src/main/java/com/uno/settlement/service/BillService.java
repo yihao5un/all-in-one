@@ -14,6 +14,11 @@ public interface BillService extends IService<Bill> {
     void createBill(String orderNo, Long employeeId, Long productId, String type);
 
     /**
+     * 支付账单，并反写订单结算状态。
+     */
+    Bill payBill(String billNo);
+
+    /**
      * 根据订单号补生成缺失账单。用于 MQ 异常、历史迁移等人工修复场景。
      */
     Bill rebuildBillFromOrder(String orderNo);

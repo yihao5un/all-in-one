@@ -15,6 +15,8 @@
   → MQ 本地事务中开启 Seata AT 全局事务
   → 创建订单并推进状态 CREATED → PROCESSING
   → 产品中心扣减产品名额 / 服务额度
+  → 调用第三方外服/福利供应商接口同步订单
+  → 三方同步成功后记录 third_sync_status = SUCCESS
   → 订单进入 PENDING_PAYMENT
   → Seata 提交 / 回滚
   → RocketMQ 提交结算消息
@@ -146,75 +148,79 @@ graph TB
 ## 四、面试知识点 → 项目模块映射
 
 > [!IMPORTANT]
-> 这是这个项目最核心的价值——每一个技术知识点都能在项目中找到对应的实战场景。
+> 这是这个项目最核心的价值。下表区分“已落地”和“规划/可扩展”，面试时可以明确说明哪些是当前代码证据，哪些是生产演进方案。
 
 ### 4.1 分布式事务 → Seata AT
 
-| 面试知识点 | 项目中的体现 |
-|-----------|-------------|
-| Seata 四种模式（AT/TCC/Saga/XA） | 订单创建 + 产品名额扣减使用 AT 模式 |
-| `@GlobalTransactional` 注解 | 订单中心入职流程的核心事务注解 |
-| Undo Log 原理 | 可在 MySQL 中直接查看 undo_log 表 |
-| TC/TM/RM 三个角色 | Seata Server（TC）集群 + 各微服务（TM/RM） |
-| 全局锁与写隔离 | 并发入职场景下观察全局锁行为 |
-| 为什么不用 TCC | 对比实现成本——AT 无侵入 vs TCC 需写 Try/Confirm/Cancel |
+| 面试知识点 | 状态 | 项目中的体现 |
+|-----------|------|-------------|
+| Seata 四种模式（AT/TCC/Saga/XA） | 已落地 | 订单创建 + 产品名额扣减使用 AT 模式 |
+| `@GlobalTransactional` 注解 | 已落地 | 订单中心入职流程的核心事务注解 |
+| Undo Log 原理 | 已落地 | 可在 MySQL 中直接查看 undo_log 表 |
+| TC/TM/RM 三个角色 | 已落地 | Seata Server（TC）+ 各微服务（TM/RM） |
+| 全局锁与写隔离 | 已落地 | 并发入职场景下观察全局锁行为 |
+| 为什么不用 TCC | 面试说明 | 对比实现成本：AT 无侵入，TCC 需写 Try/Confirm/Cancel |
+| 外部三方同步边界 | 已落地 | 产品扣减成功后异步调用三方接口，订单主状态与 `third_sync_status` 分离 |
 
 ### 4.2 消息队列 → RocketMQ
 
-| 面试知识点 | 项目中的体现 |
-|-----------|-------------|
-| 事务消息（Half Message） | 入职成功后发送结算消息 |
-| 消费者幂等 | 结算中心通过唯一约束 + 状态机保证 |
-| 消息堆积处理 | 模拟月底批量结算 10 万条消息场景 |
-| 顺序消息 vs 并发消费 | 结算场景选择并发消费的原因分析 |
-| 死信队列 & 重试机制 | 结算失败后的重试策略 |
-| 削峰填谷 | 月底发薪日流量洪峰场景 |
+| 面试知识点 | 状态 | 项目中的体现 |
+|-----------|------|-------------|
+| 事务消息（Half Message） | 已落地 | 入职入口先发半消息，监听器执行订单 + 产品扣减本地事务 |
+| 三方同步最终一致 | 已落地 | 核心事务成功后发送三方同步消息，失败由 MQ 重试、状态和人工补偿兜底 |
+| 结算消息可靠性 | 已落地 | 三方成功后在订单库写入 Outbox 本地消息表，定时补偿任务投递结算 Topic，投递成功后标记 `SENT` |
+| 消费者幂等 | 已落地 | `t_bill.order_no` 唯一约束兜底，重复消费捕获唯一键后按成功处理 |
+| 消息堆积处理 | 面试说明 | 文档中说明发薪日扩容 Consumer、增加 Queue、上游限速、批量消费 |
+| 顺序消息 vs 并发消费 | 面试说明 | 结算场景选择并发消费；若同一订单多次变更，可按订单 ID 使用顺序消息 |
+| 死信队列 & 重试机制 | 已落地基础 | 消费异常触发 RocketMQ 重试，最终失败进入人工处理状态 |
+| 削峰填谷 | 已落地基础 | 月底结算通过 RocketMQ 解耦订单链路和账单生成 |
 
 ### 4.3 分布式锁 → Redis / Redisson
 
-| 面试知识点 | 项目中的体现 |
-|-----------|-------------|
-| Redisson 分布式锁 | 收费与开票环节防重复 |
-| Watchdog 自动续期 | 长耗时开票场景下的锁续期 |
-| 锁 + DB 唯一约束双重保证 | "Redisson 拦并发，DB 兜底" |
-| Redis Sentinel 高可用 | 3 节点 Sentinel 模式 |
-| 缓存穿透/击穿/雪崩 | 产品信息缓存策略 |
+| 面试知识点 | 状态 | 项目中的体现 |
+|-----------|------|-------------|
+| Redisson 分布式锁 | 已落地 | 入职、产品扣减、账单支付使用业务维度锁 |
+| Watchdog 自动续期 | 已落地 | 支付链路使用 `leaseTime = -1` 触发 Redisson Watchdog |
+| 锁 + DB 唯一约束双重保证 | 已落地 | 账单生成依赖唯一约束兜底，支付依赖锁和状态机幂等 |
+| Redis Sentinel 高可用 | 规划/部署演进 | 当前本地 compose 使用 Redis 主从演示，生产可扩展 Sentinel/Cluster |
+| 缓存穿透/击穿/雪崩 | 规划/面试说明 | 产品信息缓存策略可作为后续扩展 |
 
 ### 4.4 数据库 → MySQL + ShardingSphere
 
-| 面试知识点 | 项目中的体现 |
-|-----------|-------------|
-| 主从复制 | 1 主 2 从架构，读写分离 |
-| 分库分表策略 | ShardingSphere 按订单 ID hash 分片 |
-| 冷热数据分离 | 历史订单归档到冷库 |
-| SQL 优化 | 慢 SQL 分析、索引优化 |
-| MVCC | 并发订单查询场景 |
-| 千万级数据 Mock | 通过脚本批量插入模拟真实数据量 |
+| 面试知识点 | 状态 | 项目中的体现 |
+|-----------|------|-------------|
+| 主从复制 | 部署演示 | Docker 编排包含 MySQL 主从节点，业务读写分离仍可继续补充 |
+| 分库分表策略 | 规划/面试说明 | 文档中说明按企业 ID 分库、按时间/哈希分表，当前代码未接 ShardingSphere |
+| 冷热数据分离 | 规划/面试说明 | 文档中说明历史表归档和冷数据下沉，当前代码未接归档任务 |
+| SQL 优化 | 已落地基础 | 订单号、员工 ID、账单订单号等核心索引已建 |
+| MVCC | 面试说明 | 可结合 MySQL InnoDB 并发订单查询场景说明 |
+| 千万级数据 Mock | 规划 | 可后续补数据生成脚本和压测报告 |
 
 ### 4.5 微服务治理 → Spring Cloud Alibaba
 
-| 面试知识点 | 项目中的体现 |
-|-----------|-------------|
-| Nacos 注册中心 & 配置中心 | 所有服务注册 + 动态配置 |
-| Gateway 网关路由 | 统一入口、路由转发、鉴权 |
-| Sentinel 限流降级 | 接口 QPS 限流 + 熔断 |
-| OpenFeign 服务调用 | 订单中心调用产品中心 |
-| 负载均衡（Ribbon/LoadBalancer） | 3 节点服务的请求分发 |
+| 面试知识点 | 状态 | 项目中的体现 |
+|-----------|------|-------------|
+| Nacos 注册中心 & 配置中心 | 已落地 | 所有服务注册，配置通过 Nacos DataId 管理 |
+| Gateway 网关路由 | 已落地 | 统一入口、路由转发、JWT 鉴权 |
+| Sentinel 限流降级 | 规划 | 可后续补接口限流和 Feign 熔断降级 |
+| OpenFeign 服务调用 | 已落地 | 订单中心调用产品中心，结算中心反查/反写订单 |
+| 负载均衡（LoadBalancer） | 已落地基础 | Gateway/Feign 通过服务名调用，依赖 Spring Cloud LoadBalancer |
 
 ### 4.6 搜索 → Elasticsearch
 
-| 面试知识点 | 项目中的体现 |
-|-----------|-------------|
-| 倒排索引原理 | 订单/员工全文搜索 |
-| MySQL 数据同步到 ES | Canal / 双写方案 |
-| 分片与副本 | 3 节点集群配置 |
+| 面试知识点 | 状态 | 项目中的体现 |
+|-----------|------|-------------|
+| 倒排索引原理 | 规划/面试说明 | 当前代码未接 Elasticsearch |
+| MySQL 数据同步到 ES | 规划/面试说明 | 可采用 Canal / MQ 同步方案 |
+| 分片与副本 | 规划/面试说明 | 生产可按数据量配置 ES 分片副本 |
 
 ### 4.7 异步编程 → CompletableFuture
 
-| 面试知识点 | 项目中的体现 |
-|-----------|-------------|
-| 异步并行计算 | 结算时并行查询社保、个税、汇率 |
-| thenCombine / allOf | 多数据源聚合 |
+| 面试知识点 | 状态 | 项目中的体现 |
+|-----------|------|-------------|
+| 异步并行计算 | 已落地 | 结算报表接口使用 `CompletableFuture` 并行统计账单数据 |
+| 自定义线程池隔离 | 已落地 | `settlementReportExecutor` 隔离报表线程，避免占用公共线程池 |
+| thenCombine / allOf | 已落地基础 | 报表聚合使用 `CompletableFuture.allOf` 等待多个统计任务 |
 
 ### 4.8 AI → FastAPI + LangGraph
 
@@ -226,14 +232,14 @@ graph TB
 
 ### 4.9 其他高频面试点
 
-| 面试知识点 | 项目中的体现 |
-|-----------|-------------|
-| 定时任务（XXL-Job） | 月底批量结算触发 |
-| 设计模式 | 状态模式（订单状态机）、策略模式（薪资计算）、模板方法 |
-| 接口幂等性 | 全链路幂等设计 |
-| 高可用系统设计 | 限流、熔断、降级、重试 |
-| 乐观锁/悲观锁 | 产品名额扣减场景 |
-| 线程池 | 异步结算线程池配置 |
+| 面试知识点 | 状态 | 项目中的体现 |
+|-----------|------|-------------|
+| 定时任务（XXL-Job） | 已落地基础 / 规划增强 | 当前使用 Spring Schedule 补偿投递 Outbox；生产可迁移 XXL-Job 统一调度 |
+| 设计模式 | 已落地基础 | 订单状态机、计费规则预留策略扩展点 |
+| 接口幂等性 | 已落地 | 入职、产品扣减、账单生成、账单支付均有幂等控制 |
+| 高可用系统设计 | 已落地基础 | 网关、Nacos、MQ、重试和人工补偿入口已有基础 |
+| 乐观锁/悲观锁 | 已落地基础 | 产品名额扣减通过 Redisson 锁串行化同产品扣减 |
+| 线程池 | 已落地 | 异步结算报表线程池配置 |
 | **开发规范** | **每完成一个子项必须进行阶段性总结 (Summary Requirement)** |
 
 ---
@@ -315,7 +321,7 @@ graph TB
 - [x] Seata AT 分布式事务：入职 = 订单创建 + 名额扣减
 - [x] RocketMQ 事务消息：入职成功 → 发送结算消息 (实现 ID 预生成策略)
 - [x] 结算消费者：幂等消费 + 唯一约束 + 异常防阻塞逻辑
-- [x] 订单状态闭环：`CREATED -> PROCESSING -> PENDING_PAYMENT -> SETTLED`
+- [x] 订单状态闭环：`CREATED -> PROCESSING -> WAIT_EXTERNAL_SYNC -> PENDING_PAYMENT -> SETTLED`
 - [x] 支付闭环：账单 `PENDING -> PAID` 后通过 Feign 反写订单 `SETTLED`
 - [x] 补生成账单兜底入口：仅接收 `orderNo`，后端回查订单服务并校验待支付状态
 
@@ -406,7 +412,9 @@ graph TB
 id, username, password, real_name, status, role, create_time, update_time
 
 -- uno_order.t_order
-id, order_no, employee_id, product_id, order_type, status, remark, create_time, update_time
+id, order_no, employee_id, product_id, order_type, status,
+third_sync_status, third_request_id, third_response_code, third_sync_time, third_sync_msg, third_retry_count,
+remark, create_time, update_time
 
 -- uno_product.t_product
 id, product_name, total_quota, used_quota, status, create_time, update_time
@@ -427,6 +435,15 @@ id, bill_no, order_no, employee_id, amount, bill_type, status, remark, create_ti
 ALTER TABLE uno_order.t_order
   ADD COLUMN product_id bigint DEFAULT NULL COMMENT '关联产品/福利ID' AFTER employee_id;
 
+ALTER TABLE uno_order.t_order
+  MODIFY COLUMN status varchar(30) NOT NULL COMMENT '状态机: CREATED, PROCESSING, WAIT_EXTERNAL_SYNC, PENDING_PAYMENT, SETTLED, CLOSED, SYNC_FAILED',
+  ADD COLUMN third_sync_status varchar(30) NOT NULL DEFAULT 'NOT_SYNCED' COMMENT '第三方同步状态: NOT_SYNCED, SYNCING, SUCCESS, FAILED' AFTER status,
+  ADD COLUMN third_request_id varchar(64) DEFAULT NULL COMMENT '第三方请求流水号' AFTER third_sync_status,
+  ADD COLUMN third_response_code varchar(32) DEFAULT NULL COMMENT '第三方响应码' AFTER third_request_id,
+  ADD COLUMN third_sync_time datetime DEFAULT NULL COMMENT '第三方同步成功时间' AFTER third_response_code,
+  ADD COLUMN third_sync_msg varchar(255) DEFAULT NULL COMMENT '第三方同步结果信息' AFTER third_sync_time,
+  ADD COLUMN third_retry_count int NOT NULL DEFAULT 0 COMMENT '第三方同步重试次数' AFTER third_sync_msg;
+
 ALTER TABLE uno_settlement.t_bill DROP INDEX idx_order_no;
 ALTER TABLE uno_settlement.t_bill ADD UNIQUE KEY uk_order_no (order_no);
 ```
@@ -445,6 +462,7 @@ ALTER TABLE uno_settlement.t_bill ADD UNIQUE KEY uk_order_no (order_no);
 - 订单号可携带 company 基因，便于 ShardingSphere 分库分表。
 - 金额、费率、账单类型后续应迁移到账单规则表，例如 `t_bill_rule(product_id, bill_type, amount, currency, status)`。
 - 收费、开票类外部三方调用应使用“分布式锁 + 唯一约束 + 状态机 + 结果回查”组合兜底。
+- 订单主状态 `status` 只表达业务生命周期，外部供应商同步进度使用 `third_sync_status` 单独表达，避免把外部集成状态硬塞进订单状态机。
 
 ### 7.5 当前核心数据流
 
@@ -457,6 +475,8 @@ ALTER TABLE uno_settlement.t_bill ADD UNIQUE KEY uk_order_no (order_no);
   -> uno_order.t_order 插入 CREATED
   -> 订单更新 PROCESSING
   -> Feign 调 uno-product 扣减 t_product.used_quota
+  -> 调用第三方外服/福利供应商接口同步订单
+  -> third_sync_status 更新 SUCCESS
   -> 订单更新 PENDING_PAYMENT
   -> Seata 提交
   -> RocketMQ commit
@@ -470,15 +490,34 @@ ALTER TABLE uno_settlement.t_bill ADD UNIQUE KEY uk_order_no (order_no);
 状态机语义：
 
 ```text
-CREATED -> PROCESSING -> PENDING_PAYMENT -> SETTLED -> CLOSED
+CREATED -> PROCESSING -> WAIT_EXTERNAL_SYNC -> PENDING_PAYMENT -> SETTLED -> CLOSED
 ```
 
+- `WAIT_EXTERNAL_SYNC`：内部订单创建和产品名额扣减已完成，等待外部供应商同步。
 - `PENDING_PAYMENT`：订单核心链路已完成，产品名额已扣减，账单待支付。
 - `SETTLED`：账单已支付，订单结算闭环完成。
+
+第三方同步状态语义：
+
+```text
+NOT_SYNCED -> SYNCING -> SUCCESS / FAILED
+```
+
+- `NOT_SYNCED`：订单尚未发起第三方同步。
+- `SYNCING`：已开始调用第三方外服/福利供应商接口。
+- `SUCCESS`：第三方确认同步成功，订单才允许进入 `PENDING_PAYMENT`。
+- `FAILED`：第三方同步失败，订单保留在处理中或失败待补偿状态，后续通过重试任务、人工补偿或结果回查恢复。
+
+设计取舍：
+
+- `status` 表达订单生命周期，`third_sync_status` 表达外部系统集成进度，两者分离，避免状态机膨胀。
+- 第三方接口不是本地数据库事务资源，不能依赖 Seata 回滚外部系统；真实生产应通过请求流水号、幂等键、结果回查和补偿任务兜底。
+- 三方同步成功后的结算事件已经使用 Outbox 本地消息表兜底：订单状态推进到 `PENDING_PAYMENT` 和写入 `t_order_outbox` 在同一个本地事务内完成，后台补偿任务负责投递结算 Topic。
 
 ### 7.6 Seata 与 RocketMQ 边界
 
 - Seata AT：负责订单中心和产品中心之间的同步强一致链路。
+- 第三方接口：位于订单与产品强一致链路之后，使用独立同步状态和幂等流水号记录结果；外部系统失败时走补偿，不把外部接口纳入 Seata 回滚范围。
 - RocketMQ：负责核心业务成功后的结算通知，解耦结算中心并保证最终一致。
 - 事务消息入口可以先发送 Half Message，本地事务执行 Seata 核心链路；只有本地事务成功后，消息才 commit 给结算中心消费。
 - 结算消费者通过 `orderNo` 幂等检查和数据库唯一约束防重复生成账单。

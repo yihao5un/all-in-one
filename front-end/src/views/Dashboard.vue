@@ -20,7 +20,12 @@
     <el-row :gutter="20" class="mt-20">
       <el-col :span="24">
         <el-card shadow="never">
-          <template #header>{{ $t('dashboard.recentOrders') }}</template>
+          <template #header>
+            <div class="section-header">
+              <span>{{ $t('dashboard.recentOrders') }}</span>
+              <el-button :icon="Refresh" :loading="loading" @click="refreshPage">{{ $t('common.refresh') }}</el-button>
+            </div>
+          </template>
           <el-table :data="recentOrders" style="width: 100%" v-loading="loading">
             <el-table-column prop="createTime" :label="$t('order.createTime')" width="180">
               <template #default="{ row }">
@@ -40,7 +45,7 @@
             <el-table-column prop="status" :label="$t('order.status')">
               <template #default="{ row }">
                 <el-tag :type="statusType(row.status)">
-                  {{ $t(`order.${row.status.toLowerCase()}`) || row.status }}
+                  {{ statusLabel(row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -56,6 +61,7 @@ import { computed, onMounted } from 'vue'
 import { useBusinessStore } from '@/store/business'
 import { useI18n } from 'vue-i18n'
 import { formatDate } from '@/utils/format'
+import { Refresh } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const businessStore = useBusinessStore()
@@ -114,8 +120,11 @@ const statusType = (status: string) => {
     case 'CLOSED':
     case 'SETTLED':
       return 'success'
+    case 'WAIT_EXTERNAL_SYNC':
     case 'PROCESSING':
       return 'primary'
+    case 'SYNC_FAILED':
+      return 'danger'
     case 'CREATED':
       return 'warning'
     default:
@@ -123,22 +132,32 @@ const statusType = (status: string) => {
   }
 }
 
+const statusLabel = (status: string) => {
+  if (!status) return '-'
+  return t(`order.${status.toLowerCase()}`) || status
+}
+
 const employeeName = (employeeId: number | string) => {
   const employee = businessStore.users.find((item: any) => String(item.id) === String(employeeId))
   return employee?.realName || employee?.username || `ID: ${employeeId}`
 }
 
-onMounted(() => {
-  businessStore.fetchOrders()
-  businessStore.fetchProducts()
-  businessStore.fetchUsers()
-  businessStore.fetchBills()
-})
+const refreshPage = async () => {
+  await Promise.all([
+    businessStore.fetchOrders(),
+    businessStore.fetchProducts(),
+    businessStore.fetchUsers(),
+    businessStore.fetchBills()
+  ])
+}
+
+onMounted(refreshPage)
 </script>
 
 <style scoped>
 .mt-20 { margin-top: 20px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
+.section-header { display: flex; justify-content: space-between; align-items: center; }
 .card-body .value { font-size: 2rem; margin: 0; color: #1e293b; }
 .card-body .desc { font-size: 0.875rem; color: #64748b; margin: 4px 0 0; }
 .ai-insight { padding: 10px 0; }

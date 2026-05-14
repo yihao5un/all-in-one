@@ -1,28 +1,93 @@
-### 1. 登录获取令牌
-POST http://localhost:8080/uno-auth/auth/login
+### 04 Seata 分布式事务自测
+### 目标：验证入职本地事务中订单创建 + 产品扣减的一致性。
+### 说明：当前 /order/onboard 通过 RocketMQ 事务消息触发本地 Seata 事务。
+
+@baseUrl = http://[::1]:8080
+@productId = 101
+@badProductId = 999
+
+### 1. 登录获取 Token
+POST {{baseUrl}}/auth/login
 Content-Type: application/x-www-form-urlencoded
 
 username=admin&password=123456
 
 > {%
-    client.global.set("auth_token", response.body.data.token);
+    client.test("登录成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(!!response.body.data.access_token, "应返回 data.access_token");
+    });
+    client.global.set("auth_token", response.body.data.access_token);
 %}
 
-### 2. 【分布式事务-成功案例】入职并领取福利 (101-高端医疗险)
-# 预期结果：uno_order 增加一条 ONB 订单，uno_product 的 used_quota 增加 1
-POST http://localhost:8080/uno-order/order/onboard
-Content-Type: application/x-www-form-urlencoded
+### 2. 记录产品 101 扣减前 used_quota
+GET {{baseUrl}}/product/list
 Authorization: Bearer {{auth_token}}
 
-employeeId=2001&productId=101
+> {%
+    const product = response.body.data.find(item => item.id === 101);
+    client.assert(!!product, "应存在产品 101");
+    client.global.set("seata_product_101_before", String(product.usedQuota));
+    client.log("Seata 成功用例前 used_quota = " + product.usedQuota);
+%}
 
-
-### 3. 【分布式事务-失败回滚案例】故意触发异常 (productId=999)
-# 预期结果：
-# 1. 订单中心虽然执行了 save(order)，但因为后续报错，订单应该被 Seata 回滚（数据库查不到该单号）
-# 2. 产品中心即使调用了扣减（如果有的话），也应该一起回滚
-POST http://localhost:8080/uno-order/order/onboard
-Content-Type: application/x-www-form-urlencoded
+### 3. 成功用例：入职并领取产品 101
+### 预期：返回 WAIT_EXTERNAL_SYNC；稍后订单经三方同步后进入 PENDING_PAYMENT；产品 used_quota +1；账单为 PENDING。
+POST {{baseUrl}}/order/onboard?employeeId={{$timestamp}}&productId={{productId}}
 Authorization: Bearer {{auth_token}}
 
-employeeId=2002&productId=999
+> {%
+    client.test("Seata 成功用例提交成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.status === "WAIT_EXTERNAL_SYNC", "应进入等待三方同步状态");
+    });
+    client.global.set("seata_success_order_no", response.body.data.orderNo);
+    client.log("Seata 成功用例订单号: " + response.body.data.orderNo);
+%}
+
+### 4. 等 2 秒后查询订单，预期三方同步成功后进入 PENDING_PAYMENT
+GET {{baseUrl}}/order/{{seata_success_order_no}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("成功用例订单进入待支付", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.status === "PENDING_PAYMENT", "订单状态应为 PENDING_PAYMENT");
+        client.assert(response.body.data.thirdSyncStatus === "SUCCESS", "三方同步状态应为 SUCCESS");
+    });
+%}
+
+### 5. 查询产品 101，预期 used_quota 比步骤 2 增加 1
+GET {{baseUrl}}/product/list
+Authorization: Bearer {{auth_token}}
+
+> {%
+    const before = Number(client.global.get("seata_product_101_before"));
+    const product = response.body.data.find(item => item.id === 101);
+    client.test("Seata 成功用例产品扣减已提交", function () {
+        client.assert(product.usedQuota === before + 1, "used_quota 应增加 1");
+    });
+    client.log("Seata 成功用例后 used_quota = " + product.usedQuota);
+%}
+
+### 6. 失败回滚用例：使用不存在的 productId=999
+### 预期：返回失败或回滚提示；不应该产生可查询到的有效订单，产品 101 不应变化。
+POST {{baseUrl}}/order/onboard?employeeId={{$timestamp}}999&productId={{badProductId}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("Seata 回滚用例有明确返回", function () {
+        client.assert(response.status === 200 || response.status === 500, "接口应有明确返回");
+    });
+    if (response.body && response.body.data && response.body.data.orderNo) {
+        client.global.set("seata_rollback_order_no", response.body.data.orderNo);
+        client.log("Seata 回滚用例订单号: " + response.body.data.orderNo);
+    }
+%}
+
+### 7. 查询回滚用例订单
+### 预期：查无此订单，或未形成 PENDING_PAYMENT 的完整业务结果。
+GET {{baseUrl}}/order/{{seata_rollback_order_no}}
+Authorization: Bearer {{auth_token}}

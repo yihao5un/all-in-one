@@ -8,13 +8,14 @@
             <el-input
               v-model="search"
               :placeholder="$t('employee.searchPlaceholder')"
-              style="width: 300px; margin-right: 15px;"
+              style="width: 300px;"
               clearable
             >
               <template #prefix>
                 <el-icon><Search /></el-icon>
               </template>
             </el-input>
+            <el-button :icon="Refresh" :loading="businessStore.loading" @click="refreshPage">{{ $t('common.refresh') }}</el-button>
             <el-button type="primary" @click="openAddDialog">{{ $t('common.add') }}</el-button>
           </div>
         </div>
@@ -114,7 +115,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
+import { Refresh, Search } from '@element-plus/icons-vue'
 import { useBusinessStore } from '@/store/business'
 import { useI18n } from 'vue-i18n'
 import { formatDate } from '@/utils/format'
@@ -191,9 +192,9 @@ const toggleStatus = async (row: any) => {
   ElMessage.success(nextStatus === 1 ? t('employee.enable') : t('employee.disable'))
 }
 
-onMounted(() => {
-  businessStore.fetchUsers()
-})
+const refreshPage = () => businessStore.fetchUsers(search.value)
+
+onMounted(refreshPage)
 </script>
 
 <style scoped>
@@ -205,6 +206,7 @@ onMounted(() => {
 .header-right {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 .employee-cell {
   display: flex;

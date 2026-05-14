@@ -4,7 +4,10 @@
       <template #header>
         <div class="header-actions">
           <h3>{{ $t('product.title') }}</h3>
-          <el-button type="success" @click="openAddProduct">{{ $t('product.add') }}</el-button>
+          <div class="header-right">
+            <el-button :icon="Refresh" :loading="businessStore.loading" @click="refreshPage">{{ $t('common.refresh') }}</el-button>
+            <el-button type="success" @click="openAddProduct">{{ $t('product.add') }}</el-button>
+          </div>
         </div>
       </template>
 
@@ -29,7 +32,6 @@
             />
             <div class="card-footer">
               <el-button link type="primary" @click="handleManageQuota(product)">{{ $t('product.manageQuota') }}</el-button>
-              <el-button link type="primary" @click="handleHistory(product)">{{ $t('product.history') }}</el-button>
               <el-button link type="danger" @click="handleDelete(product)">{{ $t('common.delete') }}</el-button>
             </div>
           </el-card>
@@ -68,20 +70,6 @@
         <el-button type="primary" @click="confirmUpdateQuota">{{ $t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
-
-    <!-- History Drawer -->
-    <el-drawer v-model="historyVisible" :title="$t('product.history')" size="400px">
-      <el-timeline>
-        <el-timeline-item
-          v-for="(item, index) in mockHistory"
-          :key="index"
-          :timestamp="item.time"
-          :type="item.type"
-        >
-          {{ item.content }}
-        </el-timeline-item>
-      </el-timeline>
-    </el-drawer>
   </div>
 </template>
 
@@ -90,11 +78,11 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBusinessStore } from '@/store/business'
 import { useI18n } from 'vue-i18n'
+import { Refresh } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const addDialogVisible = ref(false)
 const quotaDialogVisible = ref(false)
-const historyVisible = ref(false)
 const selectedProduct = ref<any>(null)
 const quotaUpdateValue = ref(0)
 
@@ -107,12 +95,6 @@ const products = computed(() => businessStore.products.map((product: any) => ({
   status: product.status === 1 ? t('product.active') : t('product.inactive'),
   raw: product
 })))
-
-const mockHistory = ref([
-  { time: '2026-05-10 10:00:00', content: 'Initial quota set to 100', type: 'primary' },
-  { time: '2026-05-11 14:20:00', content: 'Quota used by order ONB8821', type: 'warning' },
-  { time: '2026-05-12 09:30:00', content: 'Manual adjustment: +50', type: 'success' },
-])
 
 const newProduct = ref({
   productName: '',
@@ -177,14 +159,9 @@ const confirmUpdateQuota = async () => {
   }
 }
 
-const handleHistory = (product: any) => {
-  selectedProduct.value = product
-  historyVisible.value = true
-}
+const refreshPage = () => businessStore.fetchProducts()
 
-onMounted(() => {
-  businessStore.fetchProducts()
-})
+onMounted(refreshPage)
 </script>
 
 <style scoped>
@@ -192,6 +169,11 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .product-card {
   margin-bottom: 20px;

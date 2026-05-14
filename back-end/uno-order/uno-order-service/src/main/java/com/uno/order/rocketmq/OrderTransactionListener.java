@@ -1,6 +1,6 @@
 package com.uno.order.rocketmq;
 
-import com.uno.common.dto.SettlementMsgDTO;
+import com.uno.common.dto.ExternalSyncMsgDTO;
 import com.uno.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQTransactionListener;
@@ -28,15 +28,15 @@ public class OrderTransactionListener implements RocketMQLocalTransactionListene
     @Override
     public RocketMQLocalTransactionState executeLocalTransaction(Message msg, Object arg) {
         try {
-            SettlementMsgDTO settlementMsg = (SettlementMsgDTO) arg;
-            if (settlementMsg == null || settlementMsg.getOrderNo() == null) {
-                log.error("[MQ回调] 结算消息为空或订单号为空，回滚消息");
+            ExternalSyncMsgDTO externalSyncMsg = (ExternalSyncMsgDTO) arg;
+            if (externalSyncMsg == null || externalSyncMsg.getOrderNo() == null) {
+                log.error("[MQ回调] 三方同步消息为空或订单号为空，回滚消息");
                 return RocketMQLocalTransactionState.ROLLBACK;
             }
             
-            orderService.onboard(settlementMsg.getEmployeeId(), settlementMsg.getProductId(), settlementMsg.getOrderNo()); 
+            orderService.onboard(externalSyncMsg.getEmployeeId(), externalSyncMsg.getProductId(), externalSyncMsg.getOrderNo());
 
-            log.info("[MQ回调] 本地事务执行成功，订单号: {}，准备提交消息", settlementMsg.getOrderNo());
+            log.info("[MQ回调] 本地事务执行成功，订单号: {}，准备提交三方同步消息", externalSyncMsg.getOrderNo());
             return RocketMQLocalTransactionState.COMMIT;
             
         } catch (Exception e) {
@@ -50,8 +50,8 @@ public class OrderTransactionListener implements RocketMQLocalTransactionListene
      */
     @Override
     public RocketMQLocalTransactionState checkLocalTransaction(Message msg) {
-        SettlementMsgDTO settlementMsg = (SettlementMsgDTO) msg.getPayload();
-        String orderNo = settlementMsg.getOrderNo();
+        ExternalSyncMsgDTO externalSyncMsg = (ExternalSyncMsgDTO) msg.getPayload();
+        String orderNo = externalSyncMsg.getOrderNo();
         log.info("🔍 [MQ回查] 正在检查本地事务状态: OrderNo={}", orderNo);
 
         if (orderService.existsByOrderNo(orderNo)) {

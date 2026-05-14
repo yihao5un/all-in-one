@@ -1,23 +1,63 @@
-### 1. 登录获取令牌 (经过网关 8080 转发到 uno-auth 8081)
-POST http://localhost:8080/uno-auth/auth/login
+### 01 订单基础流程自测
+### 目标：验证 Gateway 鉴权、订单查询、订单状态机推进。
+### 前置：基础设施和后端服务已启动，Nacos 配置已导入。
+### 网关地址：http://[::1]:8080
+
+@baseUrl = http://[::1]:8080
+@seedOrderNo = ORD2026051000001
+
+### 1. 登录获取 Token
+POST {{baseUrl}}/auth/login
 Content-Type: application/x-www-form-urlencoded
 
 username=admin&password=123456
 
 > {%
-    // 这是 IDEA 的黑科技，自动提取返回的 Token 存入全局变量
-    client.global.set("auth_token", response.body.data.token);
-    client.log("拿到 Token 啦: " + client.global.get("auth_token"));
+    client.test("登录成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(!!response.body.data.access_token, "应返回 data.access_token");
+    });
+    client.global.set("auth_token", response.body.data.access_token);
 %}
 
-### 2. 通过网关凭据查询订单 (网关鉴权后转发到 uno-order 8083)
-GET http://localhost:8080/uno-order/order/ORD2026051000001
-# 自动带上刚才拿到的 Token
-Authorization: Bearer {{auth_token}} 
+### 2. 未带 Token 查询订单，预期被网关拦截
+GET {{baseUrl}}/order/{{seedOrderNo}}
 
-### 3. 触发状态机流转 (CREATED -> PROCESSING)
-POST http://localhost:8080/uno-order/order/advance
+> {%
+    client.test("未授权请求被拦截", function () {
+        client.assert(response.status === 401, "未带 Token 应返回 401");
+    });
+%}
+
+### 3. 带 Token 查询种子订单
+GET {{baseUrl}}/order/{{seedOrderNo}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("种子订单查询成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.orderNo === "ORD2026051000001", "订单号应匹配");
+    });
+%}
+
+### 4. 推进种子订单状态机
+### 首次从 CREATED -> PROCESSING；如果你重复运行，可能继续推进到 WAIT_EXTERNAL_SYNC / PENDING_PAYMENT / SETTLED / CLOSED。
+POST {{baseUrl}}/order/advance
 Content-Type: application/x-www-form-urlencoded
 Authorization: Bearer {{auth_token}}
 
-orderNo=ORD2026051000001
+orderNo={{seedOrderNo}}
+
+> {%
+    client.test("订单状态推进成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(!!response.body.data.status, "应返回推进后的订单状态");
+    });
+%}
+
+### 5. 再次查询确认状态已变化
+GET {{baseUrl}}/order/{{seedOrderNo}}
+Authorization: Bearer {{auth_token}}

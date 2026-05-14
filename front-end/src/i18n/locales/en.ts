@@ -1,7 +1,7 @@
 export default {
   common: {
-    appName: '外服人事调派订单',
-    home: '首页',
+    appName: 'FSG Order System',
+    home: 'Home',
     dashboard: 'Dashboard',
     orderMgmt: 'Order Management',
     productMgmt: 'Product Quota',
@@ -20,6 +20,7 @@ export default {
     confirm: 'Confirm',
     success: 'Success',
     failed: 'Failed',
+    refresh: 'Refresh',
     actions: 'Actions',
     details: 'Details'
   },
@@ -79,6 +80,14 @@ export default {
     closed: 'Closed',
     settled: 'Settled',
     pending_payment: 'Pending Payment',
+    wait_external_sync: 'Waiting External Sync',
+    sync_failed: 'External Sync Failed',
+    thirdSyncStatus: 'External Sync',
+    thirdSyncMsg: 'External Sync Result',
+    third_not_synced: 'Not Synced',
+    third_syncing: 'Syncing',
+    third_success: 'Synced',
+    third_failed: 'Failed',
     notes: 'Notes',
     deleteConfirm: 'Are you sure you want to delete this order?',
     searchEmployeePlaceholder: 'Search employee by name or ID',

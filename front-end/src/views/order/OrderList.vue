@@ -4,7 +4,10 @@
       <template #header>
         <div class="header-actions">
           <h3>{{ $t('order.title') }}</h3>
-          <el-button type="primary" @click="openCreateDialog">{{ $t('order.create') }}</el-button>
+          <div class="header-right">
+            <el-button :icon="Refresh" :loading="loading" @click="refreshPage">{{ $t('common.refresh') }}</el-button>
+            <el-button type="primary" @click="openCreateDialog">{{ $t('order.create') }}</el-button>
+          </div>
         </div>
       </template>
 
@@ -25,9 +28,14 @@
             {{ productName(row.productId) }}
           </template>
         </el-table-column>
-        <el-table-column prop="status" :label="$t('order.status')">
+        <el-table-column prop="status" :label="$t('order.status')" min-width="150">
           <template #default="{ row }">
-            <el-tag :type="statusStyle(row.status)" effect="dark">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag class="status-tag" :type="statusStyle(row.status)" effect="dark">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="thirdSyncStatus" :label="$t('order.thirdSyncStatus')" min-width="130">
+          <template #default="{ row }">
+            <el-tag class="status-tag" :type="thirdSyncStyle(row.thirdSyncStatus)">{{ thirdSyncLabel(row.thirdSyncStatus) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="createTime" :label="$t('order.createTime')" width="180">
@@ -119,9 +127,13 @@
         <el-descriptions-item :label="$t('order.employee')">{{ employeeName(selectedOrder?.employeeId) }}</el-descriptions-item>
         <el-descriptions-item :label="$t('order.product')">{{ productName(selectedOrder?.productId) }}</el-descriptions-item>
         <el-descriptions-item :label="$t('order.status')">
-          <el-tag :type="statusStyle(selectedOrder?.status)">{{ statusLabel(selectedOrder?.status) }}</el-tag>
+          <el-tag class="status-tag" :type="statusStyle(selectedOrder?.status)">{{ statusLabel(selectedOrder?.status) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item :label="$t('order.thirdSyncStatus')">
+          <el-tag class="status-tag" :type="thirdSyncStyle(selectedOrder?.thirdSyncStatus)">{{ thirdSyncLabel(selectedOrder?.thirdSyncStatus) }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item :label="$t('order.createTime')">{{ formatDate(selectedOrder?.createTime) }}</el-descriptions-item>
+        <el-descriptions-item :label="$t('order.thirdSyncMsg')" :span="2">{{ selectedOrder?.thirdSyncMsg || '-' }}</el-descriptions-item>
       </el-descriptions>
       <template #footer>
         <el-button @click="detailVisible = false">{{ $t('common.confirm') }}</el-button>
@@ -136,6 +148,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBusinessStore } from '@/store/business'
 import { useI18n } from 'vue-i18n'
 import { formatDate } from '@/utils/format'
+import { Refresh } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const businessStore = useBusinessStore()
@@ -200,6 +213,8 @@ const statusStyle = (status: string) => {
     case 'Completed': case 'COMPLETED': return 'success'
     case 'SETTLED': case 'CLOSED': return 'success'
     case 'PENDING_PAYMENT': return 'warning'
+    case 'WAIT_EXTERNAL_SYNC': return 'primary'
+    case 'SYNC_FAILED': return 'danger'
     case 'Processing': case 'PROCESSING': return 'primary'
     case 'CREATED': return 'warning'
     case 'Pending': case 'PENDING': return 'info'
@@ -211,6 +226,21 @@ const statusLabel = (status: string) => {
   if (!status) return '-'
   const key = status.toLowerCase()
   return t(`order.${key}`) || status
+}
+
+const thirdSyncStyle = (status: string) => {
+  switch (status) {
+    case 'SUCCESS': return 'success'
+    case 'FAILED': return 'danger'
+    case 'SYNCING': return 'primary'
+    case 'NOT_SYNCED': return 'info'
+    default: return 'info'
+  }
+}
+
+const thirdSyncLabel = (status: string) => {
+  if (!status) return '-'
+  return t(`order.third_${status.toLowerCase()}`) || status
 }
 
 const openCreateDialog = () => {
@@ -246,6 +276,15 @@ const loadOrders = async () => {
   total.value = await businessStore.fetchOrders(currentPage.value, pageSize.value)
 }
 
+const refreshPage = async () => {
+  await Promise.all([
+    loadOrders(),
+    businessStore.fetchProducts(),
+    businessStore.fetchUsers(),
+    businessStore.fetchBills()
+  ])
+}
+
 const handlePageChange = (val: number) => {
   currentPage.value = val
   loadOrders()
@@ -278,11 +317,7 @@ const handleCancel = (row: any) => {
   ElMessage.info('Cancel logic to be implemented')
 }
 
-onMounted(() => {
-  loadOrders()
-  businessStore.fetchProducts()
-  businessStore.fetchUsers()
-})
+onMounted(refreshPage)
 </script>
 
 <style scoped>
@@ -296,5 +331,21 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.status-tag {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  min-width: max-content;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  padding-inline: 10px;
+  line-height: 22px;
 }
 </style>

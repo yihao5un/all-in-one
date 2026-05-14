@@ -22,6 +22,18 @@ public class Order {
     private String orderType;
     
     private String status;
+
+    private String thirdSyncStatus;
+
+    private String thirdRequestId;
+
+    private String thirdResponseCode;
+
+    private LocalDateTime thirdSyncTime;
+
+    private String thirdSyncMsg;
+
+    private Integer thirdRetryCount;
     
     private String remark;
     

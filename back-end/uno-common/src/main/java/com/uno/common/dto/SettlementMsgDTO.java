@@ -18,6 +18,6 @@ public class SettlementMsgDTO implements Serializable {
     @JsonProperty("orderNo")
     private String orderNo;     // 订单号
     private Long employeeId;    // 员工ID
-    private Long productId;     // 产品ID (新增)
+    private Long productId;     // 产品ID
     private String type;        // 业务类型: ONBOARD, BONUS, etc.
 }

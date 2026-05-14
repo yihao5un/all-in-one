@@ -1,5 +1,9 @@
 # AI 辅助开发系统指令 (AI System Prompt)
 
+所有内容都需要符合最佳实践！
+所有内容都需要符合最佳实践！
+所有内容都需要符合最佳实践！
+
 ## 项目背景
 本机正在开发一套基于 Spring Cloud Alibaba 的**人力资源微服务系统 (HR System)**。
 核心业务包含：Gateway网关、Auth认证中心、Order员工订单(入职/调岗)中心、Product福利名额中心、Settlement薪资结算中心。

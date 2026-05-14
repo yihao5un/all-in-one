@@ -4,7 +4,10 @@
       <template #header>
         <div class="header-actions">
           <h3>{{ $t('settlement.title') }}</h3>
-          <el-button type="warning" @click="openCreateDialog">{{ $t('settlement.createBill') }}</el-button>
+          <div class="header-right">
+            <el-button :icon="Refresh" :loading="businessStore.loading" @click="refreshPage">{{ $t('common.refresh') }}</el-button>
+            <el-button type="warning" @click="openCreateDialog">{{ $t('settlement.createBill') }}</el-button>
+          </div>
         </div>
       </template>
 
@@ -117,6 +120,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBusinessStore } from '@/store/business'
 import { useI18n } from 'vue-i18n'
 import { formatDate } from '@/utils/format'
+import { Refresh } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const businessStore = useBusinessStore()
@@ -225,11 +229,15 @@ const downloadReport = (row: any) => {
   URL.revokeObjectURL(url)
 }
 
-onMounted(() => {
-  businessStore.fetchBills()
-  businessStore.fetchOrders()
-  businessStore.fetchUsers()
-})
+const refreshPage = async () => {
+  await Promise.all([
+    businessStore.fetchBills(),
+    businessStore.fetchOrders(),
+    businessStore.fetchUsers()
+  ])
+}
+
+onMounted(refreshPage)
 </script>
 
 <style scoped>
@@ -238,6 +246,11 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .amount { font-family: 'Courier New', Courier, monospace; font-weight: bold; }
 .summary-item {

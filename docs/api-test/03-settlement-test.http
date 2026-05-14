@@ -1,20 +1,80 @@
-### 1. 登录获取令牌
-POST http://localhost:8080/uno-auth/auth/login
+### 03 结算中心自测
+### 目标：验证账单列表查询、为待支付订单补生成账单、支付账单后反写订单状态。
+### 推荐先运行 05-rocketmq-integration-test.http 创建一条新的待支付订单和账单。
+
+@baseUrl = http://[::1]:8080
+@seedOrderNo = ORD2026051000001
+
+### 1. 登录获取 Token
+POST {{baseUrl}}/auth/login
 Content-Type: application/x-www-form-urlencoded
 
 username=admin&password=123456
 
 > {%
-    client.global.set("auth_token", response.body.data.token);
+    client.test("登录成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(!!response.body.data.access_token, "应返回 data.access_token");
+    });
+    client.global.set("auth_token", response.body.data.access_token);
 %}
 
-### 2. 模拟发起一次结算请求 (如：订单流转到最后一步触发结算)
-POST http://localhost:8080/uno-settlement/settlement/create
-Content-Type: application/x-www-form-urlencoded
+### 2. 查询账单列表
+GET {{baseUrl}}/settlement/list
 Authorization: Bearer {{auth_token}}
 
-orderNo=ORD2026051000001&employeeId=1001
+> {%
+    client.test("账单列表查询成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(Array.isArray(response.body.data), "data 应为账单数组");
+    });
+    const pendingBill = response.body.data.find(item => item.status === "PENDING");
+    if (pendingBill) {
+        client.global.set("pending_bill_no", pendingBill.billNo);
+        client.global.set("pending_bill_order_no", pendingBill.orderNo);
+        client.log("找到待支付账单: " + pendingBill.billNo + ", orderNo=" + pendingBill.orderNo);
+    } else {
+        client.log("当前没有 PENDING 账单。可先运行 05 创建一条，或运行下面的补生成接口。");
+    }
+%}
 
-### 3. (后续可扩展) 查询我的账单列表
-# GET http://localhost:8080/uno-settlement/settlement/list
-# Authorization: Bearer {{auth_token}}
+### 3. 为待支付订单补生成账单
+### 只有订单状态为 PENDING_PAYMENT 且账单不存在时才会新建；账单已存在时会直接返回已有账单。
+POST {{baseUrl}}/settlement/orders/{{seedOrderNo}}/rebuild-bill
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("补生成账单接口返回", function () {
+        client.assert(response.status === 200 || response.status === 500, "接口应有明确返回");
+    });
+    if (response.body && response.body.code === 200 && response.body.data) {
+        client.global.set("rebuilt_bill_no", response.body.data.billNo);
+        client.log("补生成/返回账单: " + response.body.data.billNo);
+    }
+%}
+
+### 4. 支付步骤 2 找到的待支付账单
+### 如果步骤 2 没找到 PENDING 账单，请先运行 05 创建新订单账单，再回到本步骤。
+POST {{baseUrl}}/settlement/{{pending_bill_no}}/pay
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("账单支付成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.status === "PAID", "账单状态应为 PAID");
+    });
+%}
+
+### 5. 查询支付后订单，预期状态为 SETTLED
+GET {{baseUrl}}/order/{{pending_bill_order_no}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("支付后订单已结算", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(response.body.data.status === "SETTLED", "订单状态应为 SETTLED");
+    });
+%}

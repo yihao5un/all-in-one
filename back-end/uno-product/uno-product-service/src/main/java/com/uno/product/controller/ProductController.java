@@ -40,8 +40,10 @@ public class ProductController {
     }
 
     @PostMapping("/deduct")
-    public Result<Object> deduct(@RequestParam("productId") Long productId, @RequestParam("count") Integer count) {
-        productService.deductQuota(productId, count);
+    public Result<Object> deduct(@RequestParam("productId") Long productId,
+                                 @RequestParam("count") Integer count,
+                                 @RequestParam("bizNo") String bizNo) {
+        productService.deductQuota(productId, count, bizNo);
         return Result.success(null);
     }
 }

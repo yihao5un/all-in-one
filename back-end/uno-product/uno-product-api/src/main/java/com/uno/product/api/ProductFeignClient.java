@@ -12,5 +12,7 @@ public interface ProductFeignClient {
      * 远程调用扣减产品名额
      */
     @PostMapping("/product/deduct")
-    Result<Object> deduct(@RequestParam("productId") Long productId, @RequestParam("count") Integer count);
+    Result<Object> deduct(@RequestParam("productId") Long productId,
+                          @RequestParam("count") Integer count,
+                          @RequestParam("bizNo") String bizNo);
 }

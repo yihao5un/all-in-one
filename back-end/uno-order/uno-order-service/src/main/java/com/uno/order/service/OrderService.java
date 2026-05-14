@@ -1,6 +1,7 @@
 package com.uno.order.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.uno.common.dto.SettlementMsgDTO;
 import com.uno.common.lock.DistributedLock;
 import com.uno.order.entity.Order;
 
@@ -22,6 +23,31 @@ public interface OrderService extends IService<Order> {
      */
     @DistributedLock(key = "'onboard:' + #employeeId", waitTime = 5, leaseTime = 30)
     String onboard(Long employeeId, Long productId, String orderNo);
+
+    /**
+     * 外部三方同步开始。
+     */
+    Order markExternalSyncing(String orderNo, String requestId);
+
+    /**
+     * 外部三方同步成功，订单进入待支付。
+     */
+    Order markExternalSyncSuccess(String orderNo, String requestId, String responseCode, String message);
+
+    /**
+     * 外部三方同步成功后，在同一个本地事务内推进订单状态并写入结算 Outbox。
+     */
+    Order markExternalSyncSuccessAndSaveSettlementEvent(String orderNo, String requestId, String responseCode, String message, SettlementMsgDTO settlementMsg);
+
+    /**
+     * 外部三方同步失败，等待 MQ 重试或人工补偿。
+     */
+    Order markExternalSyncFailed(String orderNo, String requestId, String responseCode, String message, boolean finalFailure);
+
+    /**
+     * 人工或补偿任务重新投递第三方同步消息。
+     */
+    void retryExternalSync(String orderNo);
 
     /**
      * 查询订单是否已成功落库，用于 RocketMQ 事务消息回查。

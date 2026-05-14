@@ -2,7 +2,7 @@ package com.uno.order.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.uno.common.dto.SettlementMsgDTO;
+import com.uno.common.dto.ExternalSyncMsgDTO;
 import com.uno.common.result.Result;
 import com.uno.order.dto.OnboardOrderResponse;
 import com.uno.order.dto.OrderDTO;
@@ -80,6 +80,12 @@ public class OrderController {
         dto.setProductId(order.getProductId());
         dto.setOrderType(order.getOrderType());
         dto.setStatus(order.getStatus());
+        dto.setThirdSyncStatus(order.getThirdSyncStatus());
+        dto.setThirdRequestId(order.getThirdRequestId());
+        dto.setThirdResponseCode(order.getThirdResponseCode());
+        dto.setThirdSyncTime(order.getThirdSyncTime() == null ? null : order.getThirdSyncTime().toString());
+        dto.setThirdSyncMsg(order.getThirdSyncMsg());
+        dto.setThirdRetryCount(order.getThirdRetryCount());
         dto.setRemark(order.getRemark());
         return Result.success(dto);
     }
@@ -91,6 +97,15 @@ public class OrderController {
     public Result<Object> advanceStatus(@RequestParam("orderNo") String orderNo) {
         Order updatedOrder = orderService.advanceStatus(orderNo);
         return Result.success(updatedOrder);
+    }
+
+    /**
+     * 人工补偿入口：重新投递第三方同步消息。
+     */
+    @PostMapping("/{orderNo}/external-sync/retry")
+    public Result<Object> retryExternalSync(@PathVariable("orderNo") String orderNo) {
+        orderService.retryExternalSync(orderNo);
+        return Result.success().message("第三方同步重试消息已投递");
     }
 
     /**
@@ -108,29 +123,29 @@ public class OrderController {
                     .message("该员工已存在入职订单，不能重复入职");
         }
 
-        SettlementMsgDTO msgDTO = new SettlementMsgDTO();
+        ExternalSyncMsgDTO msgDTO = new ExternalSyncMsgDTO();
         msgDTO.setOrderNo(orderNo);
         msgDTO.setEmployeeId(employeeId);
         msgDTO.setProductId(productId); 
         msgDTO.setType("ONBOARD");
         
-        Message<SettlementMsgDTO> message = MessageBuilder.withPayload(msgDTO)
+        Message<ExternalSyncMsgDTO> message = MessageBuilder.withPayload(msgDTO)
                 .setHeader(RocketMQHeaders.KEYS, orderNo)
                 .build();
 
         TransactionSendResult sendResult = rocketMQTemplate.sendMessageInTransaction(
-                "uno-settlement-topic",
+                "uno-external-sync-topic",
                 message,
                 msgDTO // 传给监听器的参数
         );
 
         if (sendResult.getLocalTransactionState() == LocalTransactionState.ROLLBACK_MESSAGE) {
-            return Result.fail(new OnboardOrderResponse(orderNo, "ROLLBACK")).message("该员工已存在入职订单，不能重复入职");
+            return Result.fail(new OnboardOrderResponse(orderNo, "ROLLBACK")).message("入职本地事务回滚，请查看订单服务日志确认原因");
         }
         if (sendResult.getLocalTransactionState() == LocalTransactionState.UNKNOW) {
             return Result.success(new OnboardOrderResponse(orderNo, "PROCESSING")).message("入职事务处理中，请稍后查询订单与结算状态");
         }
 
-        return Result.success(new OnboardOrderResponse(orderNo, "SETTLEMENT_PENDING")).message("入职订单已创建，结算账单生成中");
+        return Result.success(new OnboardOrderResponse(orderNo, "WAIT_EXTERNAL_SYNC")).message("入职订单已创建，等待第三方系统同步");
     }
 }

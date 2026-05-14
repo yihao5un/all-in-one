@@ -1,26 +1,64 @@
-### 1. 登录获取令牌 (如果 auth_token 已过期，请先点这个)
-POST http://localhost:8080/uno-auth/auth/login
+### 02 产品中心自测
+### 目标：验证产品列表查询、产品名额扣减。
+### 注意：扣减接口会真实修改 t_product.used_quota，重复运行会持续 +1。
+
+@baseUrl = http://[::1]:8080
+@productId = 101
+@deductCount = 1
+
+### 1. 登录获取 Token
+POST {{baseUrl}}/auth/login
 Content-Type: application/x-www-form-urlencoded
 
 username=admin&password=123456
 
 > {%
-    client.global.set("auth_token", response.body.data.token);
+    client.test("登录成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(!!response.body.data.access_token, "应返回 data.access_token");
+    });
+    client.global.set("auth_token", response.body.data.access_token);
 %}
 
-### 2. 查询人力资源产品列表
-GET http://localhost:8080/uno-product/product/list
+### 2. 查询产品列表，记录 101 当前 used_quota
+GET {{baseUrl}}/product/list
 Authorization: Bearer {{auth_token}}
 
+> {%
+    client.test("产品列表查询成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+        client.assert(Array.isArray(response.body.data), "data 应为产品数组");
+    });
+    const product = response.body.data.find(item => item.id === 101);
+    client.assert(!!product, "应存在产品 101");
+    client.global.set("product_101_used_quota_before", String(product.usedQuota));
+    client.log("产品 101 扣减前 used_quota = " + product.usedQuota);
+%}
 
-### 3. 模拟扣减名额 (如：员工入职领取了高端医疗险)
-POST http://localhost:8080/uno-product/product/deduct
+### 3. 扣减产品名额
+POST {{baseUrl}}/product/deduct
 Content-Type: application/x-www-form-urlencoded
 Authorization: Bearer {{auth_token}}
 
-productId=101&count=1
+productId={{productId}}&count={{deductCount}}
 
+> {%
+    client.test("产品扣减成功", function () {
+        client.assert(response.status === 200, "HTTP 状态应为 200");
+        client.assert(response.body.code === 200, "业务 code 应为 200");
+    });
+%}
 
-### 4. 再次查询确认名额已扣减
-GET http://localhost:8080/uno-product/product/list
+### 4. 再次查询，预期产品 101 used_quota 比步骤 2 增加 1
+GET {{baseUrl}}/product/list
 Authorization: Bearer {{auth_token}}
+
+> {%
+    const before = Number(client.global.get("product_101_used_quota_before"));
+    const product = response.body.data.find(item => item.id === 101);
+    client.test("产品名额已扣减", function () {
+        client.assert(product.usedQuota === before + 1, "used_quota 应增加 1");
+    });
+    client.log("产品 101 扣减后 used_quota = " + product.usedQuota);
+%}
