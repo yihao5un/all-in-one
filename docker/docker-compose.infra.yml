@@ -109,6 +109,7 @@ services:
       - --binlog-format=ROW
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_general_ci
+      - --skip-character-set-client-handshake
     ports:
       - "3306:3306"
     volumes:
@@ -132,6 +133,7 @@ services:
       - --log-bin=mysql-bin
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_general_ci
+      - --skip-character-set-client-handshake
       - --read_only=1
     ports:
       - "3307:3306"
@@ -150,6 +152,7 @@ services:
       - --log-bin=mysql-bin
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_general_ci
+      - --skip-character-set-client-handshake
       - --read_only=1
     ports:
       - "3308:3306"

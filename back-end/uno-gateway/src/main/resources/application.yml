@@ -1,27 +1,2 @@
-server:
-  port: 8080
-
-spring:
-  cloud:
-    gateway:
-      routes:
-        - id: uno-auth
-          uri: lb://uno-auth
-          predicates:
-            - Path=/auth/**
-        - id: uno-order
-          uri: lb://uno-order
-          predicates:
-            - Path=/order/**
-        - id: uno-product
-          uri: lb://uno-product
-          predicates:
-            - Path=/product/**
-        - id: uno-settlement
-          uri: lb://uno-settlement
-          predicates:
-            - Path=/settlement/**
-      discovery:
-        locator:
-          enabled: true
-          lower-case-service-id: true
+# Runtime configuration is loaded from Nacos Config:
+# dataId: uno-gateway-dev.yaml
