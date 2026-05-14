@@ -32,7 +32,11 @@
                 <el-tag>{{ $t(`order.${row.orderType.toLowerCase()}`) || row.orderType }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="employeeId" :label="$t('order.employeeId')" />
+            <el-table-column :label="$t('order.employee')" min-width="140">
+              <template #default="{ row }">
+                {{ employeeName(row.employeeId) }}
+              </template>
+            </el-table-column>
             <el-table-column prop="status" :label="$t('order.status')">
               <template #default="{ row }">
                 <el-tag :type="statusType(row.status)">
@@ -117,6 +121,11 @@ const statusType = (status: string) => {
     default:
       return 'info'
   }
+}
+
+const employeeName = (employeeId: number | string) => {
+  const employee = businessStore.users.find((item: any) => String(item.id) === String(employeeId))
+  return employee?.realName || employee?.username || `ID: ${employeeId}`
 }
 
 onMounted(() => {

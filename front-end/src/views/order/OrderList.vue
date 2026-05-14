@@ -15,7 +15,11 @@
             <el-tag :type="typeStyle(row.orderType)">{{ $t(`order.${row.orderType.toLowerCase()}`) || row.orderType }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="employeeId" :label="$t('order.employeeId')" />
+        <el-table-column :label="$t('order.employee')" min-width="140">
+          <template #default="{ row }">
+            {{ employeeName(row.employeeId) }}
+          </template>
+        </el-table-column>
         <el-table-column :label="$t('order.product')" min-width="150">
           <template #default="{ row }">
             {{ productName(row.productId) }}
@@ -112,7 +116,7 @@
       <el-descriptions :column="2" border>
         <el-descriptions-item :label="$t('order.orderNo')">{{ selectedOrder?.orderNo }}</el-descriptions-item>
         <el-descriptions-item :label="$t('order.type')">{{ selectedOrder?.orderType ? $t(`order.${selectedOrder.orderType.toLowerCase()}`) : '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="$t('order.employeeId')">{{ selectedOrder?.employeeId }}</el-descriptions-item>
+        <el-descriptions-item :label="$t('order.employee')">{{ employeeName(selectedOrder?.employeeId) }}</el-descriptions-item>
         <el-descriptions-item :label="$t('order.product')">{{ productName(selectedOrder?.productId) }}</el-descriptions-item>
         <el-descriptions-item :label="$t('order.status')">
           <el-tag :type="statusStyle(selectedOrder?.status)">{{ statusLabel(selectedOrder?.status) }}</el-tag>
@@ -168,6 +172,11 @@ const availableProducts = computed(() => businessStore.products)
 const productName = (productId: number | string) => {
   const product = businessStore.products.find((item: any) => String(item.id) === String(productId))
   return product?.productName || '-'
+}
+
+const employeeName = (employeeId: number | string) => {
+  const employee = businessStore.users.find((item: any) => String(item.id) === String(employeeId))
+  return employee?.realName || employee?.username || (employeeId ? `ID: ${employeeId}` : '-')
 }
 
 const newOrder = ref({

@@ -23,6 +23,17 @@ export default {
     actions: 'Actions',
     details: 'Details'
   },
+  login: {
+    title: 'Uno HR System',
+    subtitle: 'Enterprise Resource Management',
+    username: 'Username',
+    password: 'Password',
+    validation: 'Please enter username and password',
+    success: 'Login successful',
+    missingToken: 'No authorization token found',
+    forgotPassword: 'Forgot password?',
+    contactSupport: 'Contact IT Support'
+  },
   dashboard: {
     recentOrders: 'Recent Orders',
     aiInsights: 'AI Insights',
@@ -49,6 +60,7 @@ export default {
     create: 'Create New Order',
     orderNo: 'Order No',
     type: 'Type',
+    employee: 'Employee',
     employeeId: 'Employee ID',
     product: 'Benefit Product',
     status: 'Status',

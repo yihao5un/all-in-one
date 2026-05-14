@@ -52,8 +52,8 @@ CREATE TABLE IF NOT EXISTS `t_order` (
   KEY `idx_employee_id` (`employee_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1000 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='人力资源系统-员工调派订单表';
 
-INSERT IGNORE INTO `t_order` (`id`, `order_no`, `employee_id`, `order_type`, `status`, `remark`)
-VALUES (1001, 'ORD2026051000001', 1001, 'ONBOARD', 'CREATED', '超级管理员测试入职订单');
+INSERT IGNORE INTO `t_order` (`id`, `order_no`, `employee_id`, `product_id`, `order_type`, `status`, `remark`)
+VALUES (1001, 'ORD2026051000001', 1001, 101, 'ONBOARD', 'CREATED', '超级管理员测试入职订单');
 
 CREATE TABLE IF NOT EXISTS `undo_log` (
   `branch_id` bigint NOT NULL,

@@ -2,14 +2,14 @@
   <div class="login-container">
     <el-card class="login-card">
       <div class="login-header">
-        <h2>Uno HR System</h2>
-        <p>Enterprise Resource Management</p>
+        <h2>{{ t('login.title') }}</h2>
+        <p>{{ t('login.subtitle') }}</p>
       </div>
       <el-form :model="loginForm" @submit.prevent="handleLogin">
         <el-form-item>
           <el-input 
             v-model="loginForm.username" 
-            placeholder="Username" 
+            :placeholder="t('login.username')"
             :prefix-icon="User"
           />
         </el-form-item>
@@ -17,7 +17,7 @@
           <el-input 
             v-model="loginForm.password" 
             type="password" 
-            placeholder="Password" 
+            :placeholder="t('login.password')"
             :prefix-icon="Lock"
             show-password
           />
@@ -29,13 +29,13 @@
             :loading="loading"
             @click="handleLogin"
           >
-            Login
+            {{ t('common.login') }}
           </el-button>
         </el-form-item>
       </el-form>
       <div class="login-footer">
-        <span>Forgot password?</span>
-        <span>Contact IT Support</span>
+        <span>{{ t('login.forgotPassword') }}</span>
+        <span>{{ t('login.contactSupport') }}</span>
       </div>
     </el-card>
   </div>
@@ -44,12 +44,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 import { useUserStore } from '@/store/user'
 
 const router = useRouter()
+const { t } = useI18n()
 const userStore = useUserStore()
 const loading = ref(false)
 
@@ -60,7 +62,7 @@ const loginForm = ref({
 
 const handleLogin = async () => {
   if (!loginForm.value.username || !loginForm.value.password) {
-    ElMessage.warning('Please enter credentials')
+    ElMessage.warning(t('login.validation'))
     return
   }
 
@@ -87,10 +89,10 @@ const handleLogin = async () => {
         realName: backendData.real_name || loginForm.value.username,
         role: backendData.role || 'EMPLOYEE'
       })
-      ElMessage.success('Login successful')
+      ElMessage.success(t('login.success'))
       router.push('/dashboard')
     } else {
-      throw new Error('No authorization header found')
+      throw new Error(t('login.missingToken'))
     }
   } catch (err: any) {
     // 如果后端没开或者账号不对，这里会捕获到

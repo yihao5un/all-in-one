@@ -23,6 +23,17 @@ export default {
     actions: '操作',
     details: '详情'
   },
+  login: {
+    title: '外服人事系统',
+    subtitle: '企业人力资源管理平台',
+    username: '请输入用户名',
+    password: '请输入密码',
+    validation: '请输入用户名和密码',
+    success: '登录成功',
+    missingToken: '登录响应缺少授权信息',
+    forgotPassword: '忘记密码？',
+    contactSupport: '联系 IT 支持'
+  },
   dashboard: {
     recentOrders: '最近订单',
     aiInsights: 'AI 洞察',
@@ -49,6 +60,7 @@ export default {
     create: '创建新订单',
     orderNo: '订单编号',
     type: '类型',
+    employee: '员工',
     employeeId: '员工 ID',
     product: '福利产品',
     status: '状态',
