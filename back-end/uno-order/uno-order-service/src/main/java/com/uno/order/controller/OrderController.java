@@ -2,20 +2,13 @@ package com.uno.order.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.uno.common.dto.ExternalSyncMsgDTO;
 import com.uno.common.result.Result;
 import com.uno.order.dto.OnboardOrderResponse;
 import com.uno.order.dto.OrderDTO;
 import com.uno.order.entity.Order;
 import com.uno.order.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.rocketmq.client.producer.LocalTransactionState;
-import org.apache.rocketmq.client.producer.TransactionSendResult;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.apache.rocketmq.spring.support.RocketMQHeaders;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -27,9 +20,6 @@ public class OrderController {
 
     @Autowired
     private OrderService orderService;
-
-    @Autowired
-    private RocketMQTemplate rocketMQTemplate;
 
     /**
      * 查询所有订单 (支持分页)
@@ -109,9 +99,9 @@ public class OrderController {
     }
 
     /**
-     * 核心业务：全链路入职 (事务消息 + Seata 分布式事务演示)
-     * 流程：发送 Half 消息 -> 回调监听器执行本地入职(含 Seata 跨服务调用) -> 本地成功后提交消息 -> 结算中心消费。
-     * Controller 不直接执行本地事务，避免与 MQ 事务监听器重复创建订单和扣减产品名额。
+     * 核心业务：全链路入职。
+     * 流程：Seata 保证订单创建和产品扣减强一致，核心事务内写入三方同步 Outbox，
+     * 后台任务再可靠投递 MQ 触发三方同步。
      */
     @PostMapping("/onboard")
     public Result<OnboardOrderResponse> onboard(@RequestParam("employeeId") Long employeeId, @RequestParam("productId") Long productId) {
@@ -123,29 +113,7 @@ public class OrderController {
                     .message("该员工已存在入职订单，不能重复入职");
         }
 
-        ExternalSyncMsgDTO msgDTO = new ExternalSyncMsgDTO();
-        msgDTO.setOrderNo(orderNo);
-        msgDTO.setEmployeeId(employeeId);
-        msgDTO.setProductId(productId); 
-        msgDTO.setType("ONBOARD");
-        
-        Message<ExternalSyncMsgDTO> message = MessageBuilder.withPayload(msgDTO)
-                .setHeader(RocketMQHeaders.KEYS, orderNo)
-                .build();
-
-        TransactionSendResult sendResult = rocketMQTemplate.sendMessageInTransaction(
-                "uno-external-sync-topic",
-                message,
-                msgDTO // 传给监听器的参数
-        );
-
-        if (sendResult.getLocalTransactionState() == LocalTransactionState.ROLLBACK_MESSAGE) {
-            return Result.fail(new OnboardOrderResponse(orderNo, "ROLLBACK")).message("入职本地事务回滚，请查看订单服务日志确认原因");
-        }
-        if (sendResult.getLocalTransactionState() == LocalTransactionState.UNKNOW) {
-            return Result.success(new OnboardOrderResponse(orderNo, "PROCESSING")).message("入职事务处理中，请稍后查询订单与结算状态");
-        }
-
+        orderService.onboard(employeeId, productId, orderNo);
         return Result.success(new OnboardOrderResponse(orderNo, "WAIT_EXTERNAL_SYNC")).message("入职订单已创建，等待第三方系统同步");
     }
 }

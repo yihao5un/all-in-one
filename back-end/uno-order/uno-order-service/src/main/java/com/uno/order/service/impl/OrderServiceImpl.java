@@ -83,6 +83,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         order.setThirdSyncStatus("NOT_SYNCED");
         order.setRemark("入职调派订单：产品名额已扣减，等待第三方系统同步");
         this.updateById(order);
+        orderOutboxService.saveExternalSyncEvent(new ExternalSyncMsgDTO(orderNo, employeeId, productId, "ONBOARD"));
         log.info("【入职核心链路】执行成功！订单与产品名额已通过 Seata AT 保持一致，等待外部三方同步。");
         return orderNo;
     }

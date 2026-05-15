@@ -11,15 +11,17 @@
 ```
 入职订单创建
   → Gateway JWT 鉴权
-  → 订单中心发送 RocketMQ 事务半消息
-  → MQ 本地事务中开启 Seata AT 全局事务
+  → 订单中心校验业务状态
+  → Seata AT 开启全局事务
   → 创建订单并推进状态 CREATED → PROCESSING
   → 产品中心扣减产品名额 / 服务额度
+  → 订单进入 WAIT_EXTERNAL_SYNC，并写入三方同步 Outbox
+  → Seata 提交 / 回滚
+  → Outbox 定时投递三方同步 RocketMQ 消息
   → 调用第三方外服/福利供应商接口同步订单
   → 三方同步成功后记录 third_sync_status = SUCCESS
-  → 订单进入 PENDING_PAYMENT
-  → Seata 提交 / 回滚
-  → RocketMQ 提交结算消息
+  → 订单进入 PENDING_PAYMENT，并写入结算 Outbox
+  → Outbox 定时投递结算 RocketMQ 消息
   → 薪资结算中心消费消息
   → 幂等生成 PENDING 账单并计算金额
   → 用户支付账单后，账单 PAID 并反写订单 SETTLED
@@ -166,8 +168,8 @@ graph TB
 
 | 面试知识点 | 状态 | 项目中的体现 |
 |-----------|------|-------------|
-| 事务消息（Half Message） | 已落地 | 入职入口先发半消息，监听器执行订单 + 产品扣减本地事务 |
-| 三方同步最终一致 | 已落地 | 核心事务成功后发送三方同步消息，失败由 MQ 重试、状态和人工补偿兜底 |
+| 本地消息表（Outbox） | 已落地 | 入职核心事务内写入三方同步事件；三方成功后写入结算事件，后台任务可靠投递 |
+| 三方同步最终一致 | 已落地 | 核心事务成功后由 Outbox 投递三方同步消息，失败由 MQ 重试、状态和人工补偿兜底 |
 | 结算消息可靠性 | 已落地 | 三方成功后在订单库写入 Outbox 本地消息表，定时补偿任务投递结算 Topic，投递成功后标记 `SENT` |
 | 消费者幂等 | 已落地 | `t_bill.order_no` 唯一约束兜底，重复消费捕获唯一键后按成功处理 |
 | 消息堆积处理 | 面试说明 | 文档中说明发薪日扩容 Consumer、增加 Queue、上游限速、批量消费 |
@@ -319,7 +321,7 @@ graph TB
 
 ### Phase 3：核心链路打通（3-5 天）- ✅ 已通关
 - [x] Seata AT 分布式事务：入职 = 订单创建 + 名额扣减
-- [x] RocketMQ 事务消息：入职成功 → 发送结算消息 (实现 ID 预生成策略)
+- [x] Outbox 可靠消息：入职成功 → 三方同步消息；三方成功 → 结算消息
 - [x] 结算消费者：幂等消费 + 唯一约束 + 异常防阻塞逻辑
 - [x] 订单状态闭环：`CREATED -> PROCESSING -> WAIT_EXTERNAL_SYNC -> PENDING_PAYMENT -> SETTLED`
 - [x] 支付闭环：账单 `PENDING -> PAID` 后通过 Feign 反写订单 `SETTLED`
@@ -359,7 +361,7 @@ graph TB
 - `uno-common`：公共返回体、异常、JWT、Redisson 分布式锁、幂等组件、结算消息 DTO。
 - `uno-gateway`：统一入口、Nacos 服务发现、JWT 鉴权、CORS。
 - `uno-auth`：登录、JWT 签发、员工账号管理。当前阶段复用 `sys_user` 作为员工主数据。
-- `uno-order`：订单创建、状态推进、Seata 事务入口、RocketMQ 事务消息本地事务。
+- `uno-order`：订单创建、状态推进、Seata 事务入口、Outbox 可靠消息投递。
 - `uno-product`：产品/福利管理、产品名额扣减、锁与幂等。
 - `uno-settlement`：结算账单生成、支付确认、补生成账单兜底入口。
 
@@ -370,7 +372,7 @@ graph TB
 - 跨服务同步调用使用 OpenFeign。
 - 服务注册发现使用 Nacos。
 - 订单与产品的强一致链路使用 Seata AT。
-- 订单成功后的账单生成使用 RocketMQ 事务消息实现最终一致。
+- 订单成功后的三方同步和账单生成使用 Outbox + RocketMQ 实现最终一致。
 
 ### 7.2 认证与网关链路
 
@@ -469,17 +471,19 @@ ALTER TABLE uno_settlement.t_bill ADD UNIQUE KEY uk_order_no (order_no);
 ```text
 前端创建入职订单
   -> Gateway JWT 鉴权
-  -> uno-order 发送 RocketMQ 事务半消息
-  -> OrderTransactionListener 执行本地事务
   -> Seata AT 开启全局事务
   -> uno_order.t_order 插入 CREATED
   -> 订单更新 PROCESSING
   -> Feign 调 uno-product 扣减 t_product.used_quota
+  -> 订单更新 WAIT_EXTERNAL_SYNC
+  -> 写入三方同步 Outbox 事件
+  -> Seata 提交
+  -> Outbox 定时投递 uno-external-sync-topic
   -> 调用第三方外服/福利供应商接口同步订单
   -> third_sync_status 更新 SUCCESS
   -> 订单更新 PENDING_PAYMENT
-  -> Seata 提交
-  -> RocketMQ commit
+  -> 写入结算 Outbox 事件
+  -> Outbox 定时投递 uno-settlement-topic
   -> uno-settlement 消费消息
   -> t_bill 幂等生成 PENDING 账单
   -> 用户标记账单已支付
@@ -512,14 +516,15 @@ NOT_SYNCED -> SYNCING -> SUCCESS / FAILED
 
 - `status` 表达订单生命周期，`third_sync_status` 表达外部系统集成进度，两者分离，避免状态机膨胀。
 - 第三方接口不是本地数据库事务资源，不能依赖 Seata 回滚外部系统；真实生产应通过请求流水号、幂等键、结果回查和补偿任务兜底。
+- 内部核心事务完成时会写入三方同步 Outbox：订单推进到 `WAIT_EXTERNAL_SYNC` 和三方同步事件落库在同一个 Seata 全局事务内完成。
 - 三方同步成功后的结算事件已经使用 Outbox 本地消息表兜底：订单状态推进到 `PENDING_PAYMENT` 和写入 `t_order_outbox` 在同一个本地事务内完成，后台补偿任务负责投递结算 Topic。
 
 ### 7.6 Seata 与 RocketMQ 边界
 
 - Seata AT：负责订单中心和产品中心之间的同步强一致链路。
 - 第三方接口：位于订单与产品强一致链路之后，使用独立同步状态和幂等流水号记录结果；外部系统失败时走补偿，不把外部接口纳入 Seata 回滚范围。
-- RocketMQ：负责核心业务成功后的结算通知，解耦结算中心并保证最终一致。
-- 事务消息入口可以先发送 Half Message，本地事务执行 Seata 核心链路；只有本地事务成功后，消息才 commit 给结算中心消费。
+- RocketMQ：负责三方同步和结算通知的异步解耦；消息可靠性由 Outbox 扫描补偿兜底。
+- Outbox：负责“数据库状态变更 + 待发送消息落库”的原子性，避免核心事务提交后 MQ 临时不可用导致消息丢失。
 - 结算消费者通过 `orderNo` 幂等检查和数据库唯一约束防重复生成账单。
 
 ### 7.7 结算与补生成账单

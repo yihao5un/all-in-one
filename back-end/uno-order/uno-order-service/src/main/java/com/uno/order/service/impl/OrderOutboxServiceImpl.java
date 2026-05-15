@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.uno.common.dto.ExternalSyncMsgDTO;
 import com.uno.common.dto.SettlementMsgDTO;
 import com.uno.common.exception.UnoException;
 import com.uno.order.entity.OrderOutbox;
@@ -25,7 +26,9 @@ import java.util.List;
 @Service
 public class OrderOutboxServiceImpl extends ServiceImpl<OrderOutboxMapper, OrderOutbox> implements OrderOutboxService {
 
+    private static final String EXTERNAL_SYNC_TOPIC = "uno-external-sync-topic";
     private static final String SETTLEMENT_TOPIC = "uno-settlement-topic";
+    private static final String EVENT_TYPE_EXTERNAL_SYNC = "EXTERNAL_SYNC_REQUESTED";
     private static final String EVENT_TYPE_SETTLEMENT_CREATED = "SETTLEMENT_CREATED";
 
     private final RocketMQTemplate rocketMQTemplate;
@@ -38,12 +41,22 @@ public class OrderOutboxServiceImpl extends ServiceImpl<OrderOutboxMapper, Order
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void saveExternalSyncEvent(ExternalSyncMsgDTO message) {
+        saveEvent(message.getOrderNo(), EVENT_TYPE_EXTERNAL_SYNC, EXTERNAL_SYNC_TOPIC, message.getOrderNo(), message);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void saveSettlementEvent(SettlementMsgDTO message) {
+        saveEvent(message.getOrderNo(), EVENT_TYPE_SETTLEMENT_CREATED, SETTLEMENT_TOPIC, message.getOrderNo(), message);
+    }
+
+    private void saveEvent(String bizNo, String eventType, String topic, String messageKey, Object message) {
         OrderOutbox outbox = new OrderOutbox();
-        outbox.setBizNo(message.getOrderNo());
-        outbox.setEventType(EVENT_TYPE_SETTLEMENT_CREATED);
-        outbox.setTopic(SETTLEMENT_TOPIC);
-        outbox.setMessageKey(message.getOrderNo());
+        outbox.setBizNo(bizNo);
+        outbox.setEventType(eventType);
+        outbox.setTopic(topic);
+        outbox.setMessageKey(messageKey);
         outbox.setStatus("PENDING");
         outbox.setRetryCount(0);
         outbox.setNextRetryTime(LocalDateTime.now());
@@ -51,9 +64,9 @@ public class OrderOutboxServiceImpl extends ServiceImpl<OrderOutboxMapper, Order
             outbox.setPayload(objectMapper.writeValueAsString(message));
             this.save(outbox);
         } catch (DuplicateKeyException e) {
-            log.info("[Outbox] 结算事件已存在，跳过重复写入. OrderNo={}", message.getOrderNo());
+            log.info("[Outbox] 事件已存在，跳过重复写入. BizNo={}, EventType={}", bizNo, eventType);
         } catch (JsonProcessingException e) {
-            throw new UnoException("结算消息序列化失败: " + e.getMessage());
+            throw new UnoException("Outbox 消息序列化失败: " + e.getMessage());
         }
     }
 
@@ -85,8 +98,8 @@ public class OrderOutboxServiceImpl extends ServiceImpl<OrderOutboxMapper, Order
         }
 
         try {
-            SettlementMsgDTO payload = objectMapper.readValue(outbox.getPayload(), SettlementMsgDTO.class);
-            Message<SettlementMsgDTO> message = MessageBuilder.withPayload(payload)
+            Object payload = deserializePayload(outbox);
+            Message<Object> message = MessageBuilder.withPayload(payload)
                     .setHeader("KEYS", outbox.getMessageKey())
                     .build();
             rocketMQTemplate.send(outbox.getTopic(), message);
@@ -95,7 +108,8 @@ public class OrderOutboxServiceImpl extends ServiceImpl<OrderOutboxMapper, Order
             outbox.setSentTime(LocalDateTime.now());
             outbox.setLastError(null);
             this.updateById(outbox);
-            log.info("[Outbox] 结算消息投递成功. OrderNo={}, OutboxId={}", outbox.getBizNo(), outbox.getId());
+            log.info("[Outbox] 消息投递成功. BizNo={}, EventType={}, OutboxId={}",
+                    outbox.getBizNo(), outbox.getEventType(), outbox.getId());
         } catch (Exception e) {
             int retryCount = outbox.getRetryCount() == null ? 0 : outbox.getRetryCount();
             outbox.setRetryCount(retryCount + 1);
@@ -103,9 +117,19 @@ public class OrderOutboxServiceImpl extends ServiceImpl<OrderOutboxMapper, Order
             outbox.setLastError(e.getMessage());
             outbox.setNextRetryTime(LocalDateTime.now().plusSeconds(nextDelaySeconds(retryCount + 1)));
             this.updateById(outbox);
-            log.warn("[Outbox] 结算消息投递失败，等待补偿重试. OrderNo={}, RetryCount={}, Error={}",
-                    outbox.getBizNo(), retryCount + 1, e.getMessage());
+            log.warn("[Outbox] 消息投递失败，等待补偿重试. BizNo={}, EventType={}, RetryCount={}, Error={}",
+                    outbox.getBizNo(), outbox.getEventType(), retryCount + 1, e.getMessage());
         }
+    }
+
+    private Object deserializePayload(OrderOutbox outbox) throws JsonProcessingException {
+        if (EVENT_TYPE_EXTERNAL_SYNC.equals(outbox.getEventType())) {
+            return objectMapper.readValue(outbox.getPayload(), ExternalSyncMsgDTO.class);
+        }
+        if (EVENT_TYPE_SETTLEMENT_CREATED.equals(outbox.getEventType())) {
+            return objectMapper.readValue(outbox.getPayload(), SettlementMsgDTO.class);
+        }
+        throw new UnoException("不支持的 Outbox 事件类型: " + outbox.getEventType());
     }
 
     private long nextDelaySeconds(int retryCount) {

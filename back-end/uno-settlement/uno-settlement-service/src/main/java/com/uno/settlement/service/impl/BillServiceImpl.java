@@ -46,7 +46,7 @@ public class BillServiceImpl extends ServiceImpl<BillMapper, Bill> implements Bi
         bill.setAmount(calculateAmount(productId, type));
         bill.setBillType(resolveBillType(type));
         bill.setStatus("PENDING"); // 待支付
-        bill.setRemark("订单中心事务消息触发生成");
+        bill.setRemark("订单中心 Outbox 消息触发生成");
         
         try {
             this.save(bill);
