@@ -2,13 +2,27 @@ package com.uno.order.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.uno.common.enums.BizNoPrefixEnum;
 import com.uno.common.result.Result;
 import com.uno.order.dto.OnboardOrderResponse;
+import com.uno.order.dto.OnboardRequestDTO;
 import com.uno.order.dto.OrderDTO;
 import com.uno.order.entity.Order;
+import com.uno.order.enums.OrderStatusEnum;
+import com.uno.order.entity.OrderItem;
+import com.uno.order.entity.OrderOutbox;
+import com.uno.order.service.OrderItemService;
+import com.uno.order.service.OrderOutboxService;
 import com.uno.order.service.OrderService;
+import org.springframework.beans.BeanUtils;
+import java.util.stream.Collectors;
+import java.util.List;
+import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -16,10 +30,15 @@ import java.util.UUID;
 @Slf4j
 @RestController
 @RequestMapping("/order")
+@RequiredArgsConstructor
+@Tag(name = "订单管理接口", description = "提供订单查询、状态流转及全链路入职申请等功能")
 public class OrderController {
 
-    @Autowired
-    private OrderService orderService;
+    private final OrderService orderService;
+    private final OrderOutboxService orderOutboxService;
+    private final OrderItemService orderItemService;
+
+    // 已移除 idGenerator，由 Service 内部处理逻辑
 
     /**
      * 查询所有订单 (支持分页)
@@ -28,7 +47,36 @@ public class OrderController {
     public Result<Object> list(@RequestParam(value = "page", defaultValue = "1") Integer page,
                                @RequestParam(value = "limit", defaultValue = "20") Integer limit) {
         Page<Order> orderPage = new Page<>(page, limit);
-        return Result.success(orderService.page(orderPage, new LambdaQueryWrapper<Order>().orderByDesc(Order::getCreateTime)));
+        orderService.page(orderPage, new LambdaQueryWrapper<Order>().orderByDesc(Order::getCreateTime));
+        
+        List<OrderDTO> dtos = orderPage.getRecords().stream().map(order -> {
+            OrderDTO dto = new OrderDTO();
+            BeanUtils.copyProperties(order, dto);
+            
+            // 查询订单明细表，获取产品 ID 列表
+            List<Long> productIds = orderItemService.list(new LambdaQueryWrapper<OrderItem>()
+                    .eq(OrderItem::getOrderNo, order.getOrderNo()))
+                    .stream()
+                    .map(OrderItem::getProductId)
+                    .collect(Collectors.toList());
+            
+            dto.setProductIds(productIds);
+            
+            // 检查结算消息是否已投递
+            boolean billSent = orderOutboxService.count(new LambdaQueryWrapper<OrderOutbox>()
+                    .eq(OrderOutbox::getBizNo, order.getOrderNo())
+                    .eq(OrderOutbox::getEventType, "SETTLEMENT_CREATED")
+                    .eq(OrderOutbox::getStatus, "SENT")) > 0;
+            dto.setBillSyncSent(billSent);
+            
+            return dto;
+        }).collect(Collectors.toList());
+        
+        Page<OrderDTO> dtoPage = new Page<>(page, limit);
+        dtoPage.setRecords(dtos);
+        dtoPage.setTotal(orderPage.getTotal());
+        
+        return Result.success(dtoPage);
     }
 
     /**
@@ -46,6 +94,15 @@ public class OrderController {
     }
 
     /**
+     * 手动触发 Outbox 消息投递
+     */
+    @PostMapping("/outbox/publish")
+    public Result<Object> publishOutbox(@RequestParam(value = "eventType", required = false) String eventType) {
+        orderOutboxService.publishPendingMessages(50, eventType);
+        return Result.success();
+    }
+
+    /**
      * 删除订单
      */
     @DeleteMapping("/{id}")
@@ -59,24 +116,10 @@ public class OrderController {
      */
     @GetMapping("/{orderNo}")
     public Result<OrderDTO> getOrder(@PathVariable String orderNo) {
-        Order order = orderService.getOne(new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo));
-        if (order == null) {
+        OrderDTO dto = orderService.getOrderDTO(orderNo);
+        if (dto == null) {
             return Result.<OrderDTO>fail().message("查无此订单");
         }
-        OrderDTO dto = new OrderDTO();
-        dto.setId(order.getId());
-        dto.setOrderNo(order.getOrderNo());
-        dto.setEmployeeId(order.getEmployeeId());
-        dto.setProductId(order.getProductId());
-        dto.setOrderType(order.getOrderType());
-        dto.setStatus(order.getStatus());
-        dto.setThirdSyncStatus(order.getThirdSyncStatus());
-        dto.setThirdRequestId(order.getThirdRequestId());
-        dto.setThirdResponseCode(order.getThirdResponseCode());
-        dto.setThirdSyncTime(order.getThirdSyncTime() == null ? null : order.getThirdSyncTime().toString());
-        dto.setThirdSyncMsg(order.getThirdSyncMsg());
-        dto.setThirdRetryCount(order.getThirdRetryCount());
-        dto.setRemark(order.getRemark());
         return Result.success(dto);
     }
 
@@ -103,17 +146,18 @@ public class OrderController {
      * 流程：Seata 保证订单创建和产品扣减强一致，核心事务内写入三方同步 Outbox，
      * 后台任务再可靠投递 MQ 触发三方同步。
      */
+    @Operation(summary = "提交全链路入职申请", description = "包含订单创建、产品名额扣减以及三方系统异步同步流程")
     @PostMapping("/onboard")
-    public Result<OnboardOrderResponse> onboard(@RequestParam("employeeId") Long employeeId, @RequestParam("productId") Long productId) {
-        String orderNo = UUID.randomUUID().toString().replace("-", "").substring(0, 15).toUpperCase();
-        log.info("[订单中心] 接收到入职申请. EmployeeId={}, ProductId={}, OrderNo={}", employeeId, productId, orderNo);
-
-        if (orderService.existsByEmployeeId(employeeId)) {
-            return Result.fail(new OnboardOrderResponse(orderNo, "DUPLICATE_ONBOARD"))
-                    .message("该员工已存在入职订单，不能重复入职");
-        }
-
-        orderService.onboard(employeeId, productId, orderNo);
-        return Result.success(new OnboardOrderResponse(orderNo, "WAIT_EXTERNAL_SYNC")).message("入职订单已创建，等待第三方系统同步");
+    @ResponseStatus(HttpStatus.CREATED)
+    public Result<OnboardOrderResponse> onboard(@Valid @RequestBody OnboardRequestDTO onboardRequestDTO) {
+        log.info("[订单中心] 接收到入职请求. EmployeeId={}, Products={}", 
+                onboardRequestDTO.getEmployeeId(), onboardRequestDTO.getProducts());
+        
+        String orderNo = orderService.onboard(onboardRequestDTO);
+        
+        log.info("[订单中心] 入职请求处理成功. OrderNo={}", orderNo);
+        
+        return Result.success(new OnboardOrderResponse(orderNo, OrderStatusEnum.WAIT_EXTERNAL_SYNC.getCode()))
+                .message("入职申请已提交: " + OrderStatusEnum.WAIT_EXTERNAL_SYNC.getDesc());
     }
 }

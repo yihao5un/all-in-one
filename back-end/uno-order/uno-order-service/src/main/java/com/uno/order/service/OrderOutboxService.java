@@ -10,5 +10,5 @@ public interface OrderOutboxService extends IService<OrderOutbox> {
 
     void saveSettlementEvent(SettlementMsgDTO message);
 
-    void publishPendingMessages(int batchSize);
+    void publishPendingMessages(int batchSize, String eventType);
 }

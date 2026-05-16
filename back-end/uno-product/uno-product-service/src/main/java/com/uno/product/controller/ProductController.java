@@ -1,19 +1,20 @@
 package com.uno.product.controller;
 
 import com.uno.common.result.Result;
+import com.uno.common.dto.ProductItemDTO;
 import com.uno.product.entity.Product;
 import com.uno.product.service.ProductService;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/product")
+@RequiredArgsConstructor
 public class ProductController {
 
-    @Autowired
-    private ProductService productService;
+    private final ProductService productService;
 
     @GetMapping("/list")
     public Result<Object> list() {
@@ -40,10 +41,12 @@ public class ProductController {
     }
 
     @PostMapping("/deduct")
-    public Result<Object> deduct(@RequestParam("productId") Long productId,
-                                 @RequestParam("count") Integer count,
+    public Result<Object> deduct(@RequestBody List<ProductItemDTO> productItemDTOS,
                                  @RequestParam("bizNo") String bizNo) {
-        productService.deductQuota(productId, count, bizNo);
+        for (ProductItemDTO item : productItemDTOS) {
+            // 拼接 productId 保证幂等防重对每个产品独立生效
+            productService.deductQuota(item.getProductId(), item.getCount(), bizNo + ":" + item.getProductId());
+        }
         return Result.success(null);
     }
 }

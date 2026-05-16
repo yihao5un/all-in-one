@@ -7,31 +7,29 @@ import com.uno.order.external.ExternalSyncRequest;
 import com.uno.order.external.ExternalSyncResponse;
 import com.uno.order.entity.Order;
 import com.uno.order.service.OrderService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
 /**
  * 外部三方同步消费者。
- *
  * 入职核心链路成功后先同步第三方，成功后再投递结算消息。
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 @RocketMQMessageListener(topic = "uno-external-sync-topic", consumerGroup = "uno-order-external-sync-group")
 public class ExternalSyncConsumer implements RocketMQListener<ExternalSyncMsgDTO> {
 
     private static final int MAX_RETRY_COUNT = 3;
 
-    @Autowired
-    private OrderService orderService;
+    private final OrderService orderService;
 
-    @Autowired
-    private ExternalPartnerClient externalPartnerClient;
+    private final ExternalPartnerClient externalPartnerClient;
 
     @Override
     public void onMessage(ExternalSyncMsgDTO message) {
@@ -66,7 +64,7 @@ public class ExternalSyncConsumer implements RocketMQListener<ExternalSyncMsgDTO
                     requestId,
                     message.getOrderNo(),
                     message.getEmployeeId(),
-                    message.getProductId(),
+                    message.getProducts(),
                     message.getType()
             );
             ExternalSyncResponse response = externalPartnerClient.syncOnboardOrder(request);
@@ -76,7 +74,7 @@ public class ExternalSyncConsumer implements RocketMQListener<ExternalSyncMsgDTO
             SettlementMsgDTO settlementMsg = new SettlementMsgDTO(
                     message.getOrderNo(),
                     message.getEmployeeId(),
-                    message.getProductId(),
+                    message.getProducts(),
                     message.getType()
             );
             orderService.markExternalSyncSuccessAndSaveSettlementEvent(

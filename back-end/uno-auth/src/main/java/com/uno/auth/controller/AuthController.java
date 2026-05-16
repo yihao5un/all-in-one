@@ -4,7 +4,7 @@ import com.uno.auth.service.SysUserService;
 import com.uno.common.result.Result;
 import com.uno.auth.entity.SysUser;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -12,16 +12,15 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
+@RequiredArgsConstructor
 public class AuthController {
 
-    @Autowired
-    private SysUserService sysUserService;
+    private final SysUserService sysUserService;
 
     /**
      * 登录发放 Token 接口 (直连 MySQL 版)
      */
-    @Autowired
-    private jakarta.servlet.http.HttpServletResponse response;
+    private final jakarta.servlet.http.HttpServletResponse response;
 
     @PostMapping("/login")
     public Result<Object> login(@RequestParam("username") String username, @RequestParam("password") String password) {

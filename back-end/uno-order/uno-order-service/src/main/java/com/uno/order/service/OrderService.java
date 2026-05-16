@@ -2,7 +2,10 @@ package com.uno.order.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.uno.common.dto.SettlementMsgDTO;
+import com.uno.order.dto.OnboardRequestDTO;
 import com.uno.order.entity.Order;
+import com.uno.order.dto.OrderDTO;
+import jakarta.validation.Valid;
 
 public interface OrderService extends IService<Order> {
     
@@ -15,12 +18,15 @@ public interface OrderService extends IService<Order> {
 
     /**
      * 入职全链路业务 (演示 Seata 分布式事务)
-     * @param employeeId 员工ID
-     * @param productId 关联领取的福利产品ID
-     * @param orderNo 订单号
+     * @param onboardRequestDTO 入职请求 DTO (包含员工、产品及订单号)
      * @return 订单号
      */
-    String onboard(Long employeeId, Long productId, String orderNo);
+    String onboard(@Valid OnboardRequestDTO onboardRequestDTO);
+
+    /**
+     * 获取订单详情（包含产品列表）
+     */
+    OrderDTO getOrderDTO(String orderNo);
 
     /**
      * 外部三方同步开始。

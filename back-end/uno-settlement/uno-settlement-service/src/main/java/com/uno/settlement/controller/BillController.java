@@ -5,18 +5,17 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.uno.settlement.entity.Bill;
 import com.uno.settlement.service.BillService;
 import com.uno.settlement.service.SettlementReportService;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/settlement")
+@RequiredArgsConstructor
 public class BillController {
 
-    @Autowired
-    private BillService billService;
+    private final BillService billService;
 
-    @Autowired
-    private SettlementReportService settlementReportService;
+    private final SettlementReportService settlementReportService;
 
     @PostMapping("/orders/{orderNo}/rebuild-bill")
     public Result<Object> rebuildBill(@PathVariable("orderNo") String orderNo) {

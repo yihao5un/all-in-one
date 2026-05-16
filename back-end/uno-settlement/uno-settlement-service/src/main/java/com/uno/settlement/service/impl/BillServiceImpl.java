@@ -3,6 +3,9 @@ package com.uno.settlement.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.uno.common.exception.UnoException;
+import com.uno.common.dto.ProductItemDTO;
+import java.util.List;
+import java.util.stream.Collectors;
 import com.uno.common.lock.DistributedLock;
 import com.uno.common.result.Result;
 import com.uno.order.api.OrderFeignClient;
@@ -10,8 +13,8 @@ import com.uno.order.dto.OrderDTO;
 import com.uno.settlement.entity.Bill;
 import com.uno.settlement.mapper.BillMapper;
 import com.uno.settlement.service.BillService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,17 +24,17 @@ import java.util.UUID;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class BillServiceImpl extends ServiceImpl<BillMapper, Bill> implements BillService {
 
     private static final BigDecimal ONBOARD_FEE_AMOUNT = new BigDecimal("5000.00");
 
-    @Autowired
-    private OrderFeignClient orderFeignClient;
+    private final OrderFeignClient orderFeignClient;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void createBill(String orderNo, Long employeeId, Long productId, String type) {
-        log.info("【人力资源系统-结算中心】收到结算请求: OrderNo={}, EmployeeID={}, ProductID={}, Type={}", orderNo, employeeId, productId, type);
+    public void createBill(String orderNo, Long employeeId, List<ProductItemDTO> products, String type) {
+        log.info("【人力资源系统-结算中心】收到结算请求: OrderNo={}, EmployeeID={}, Products={}, Type={}", orderNo, employeeId, products, type);
 
         Bill existing = this.getOne(new LambdaQueryWrapper<Bill>().eq(Bill::getOrderNo, orderNo));
         if (existing != null) {
@@ -43,7 +46,7 @@ public class BillServiceImpl extends ServiceImpl<BillMapper, Bill> implements Bi
         bill.setBillNo("BILL" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
         bill.setOrderNo(orderNo);
         bill.setEmployeeId(employeeId);
-        bill.setAmount(calculateAmount(productId, type));
+        bill.setAmount(calculateAmount(products, type));
         bill.setBillType(resolveBillType(type));
         bill.setStatus("PENDING"); // 待支付
         bill.setRemark("订单中心 Outbox 消息触发生成");
@@ -113,11 +116,14 @@ public class BillServiceImpl extends ServiceImpl<BillMapper, Bill> implements Bi
             throw new UnoException("只有待支付订单可以补生成账单");
         }
 
-        createBill(order.getOrderNo(), order.getEmployeeId(), order.getProductId(), order.getOrderType());
+        List<ProductItemDTO> products = order.getProductIds().stream()
+                .map(id -> new ProductItemDTO(id, 1))
+                .collect(Collectors.toList());
+        createBill(order.getOrderNo(), order.getEmployeeId(), products, order.getOrderType());
         return this.getOne(new LambdaQueryWrapper<Bill>().eq(Bill::getOrderNo, orderNo));
     }
 
-    private BigDecimal calculateAmount(Long productId, String type) {
+    private BigDecimal calculateAmount(List<ProductItemDTO> products, String type) {
         // 当前阶段使用服务内集中计费规则；后续可迁移到 t_bill_rule 按 product_id + bill_type 配置。
         if ("ONBOARD".equals(type)) {
             return ONBOARD_FEE_AMOUNT;

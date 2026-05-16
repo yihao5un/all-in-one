@@ -23,6 +23,18 @@ CREATE TABLE IF NOT EXISTS `t_order` (
   KEY `idx_employee_id` (`employee_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1000 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='人力资源系统-员工调派订单表';
 
+CREATE TABLE IF NOT EXISTS `t_order_item` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `order_no` varchar(32) NOT NULL COMMENT '订单号',
+  `product_id` bigint NOT NULL COMMENT '产品ID',
+  `count` int NOT NULL DEFAULT '1' COMMENT '数量',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_order_no` (`order_no`),
+  KEY `idx_product_id` (`product_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单明细表';
+
 CREATE TABLE IF NOT EXISTS `t_order_outbox` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
   `biz_no` varchar(64) NOT NULL COMMENT '业务单号，如订单号',

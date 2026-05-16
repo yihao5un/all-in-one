@@ -48,19 +48,32 @@ export const useBusinessStore = defineStore('business', {
     async createOrder(orderData: any) {
       this.loading = true
       try {
-        if (!orderData.employeeId || !orderData.productId) {
-          throw new Error('Employee and product are required')
+        if (!orderData.employeeId || !orderData.products || orderData.products.length === 0) {
+          throw new Error('Employee and products are required')
         }
-        const params = new URLSearchParams()
-        params.append('employeeId', String(orderData.employeeId))
-        params.append('productId', String(orderData.productId))
-        const response = await request.post('/order/onboard', params)
+        const response = await request.post('/order/onboard', {
+          employeeId: orderData.employeeId,
+          products: orderData.products
+        })
         await Promise.all([
           this.fetchOrders(),
           this.fetchProducts(),
           this.fetchBills()
         ])
         return response.data
+      } catch (err: any) {
+        this.error = err.message
+        throw err
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async triggerOutboxPublish(eventType?: string) {
+      this.loading = true
+      try {
+        await request.post(`/order/outbox/publish?eventType=${eventType || ''}`)
+        await this.fetchOrders()
       } catch (err: any) {
         this.error = err.message
         throw err

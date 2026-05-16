@@ -2,10 +2,17 @@ package com.uno.common.handler;
 
 import com.uno.common.exception.UnoException;
 import com.uno.common.result.Result;
+import com.uno.common.result.ResultCodeEnum;
 import feign.FeignException;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.validation.ObjectError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.stream.Collectors;
 
 /**
  * 增强版全局异常处理器
@@ -24,6 +31,34 @@ public class GlobalExceptionHandler {
         return Result.fail()
                 .code(e.getCode())
                 .message(e.getMessage());
+    }
+
+    /**
+     * 处理 Bean Validation 校验异常 (Controller 参数校验)
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<Object> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
+        log.error("【系统异常】参数校验错误: ", e);
+        String message = e.getBindingResult().getAllErrors().stream()
+                .map(ObjectError::getDefaultMessage)
+                .collect(Collectors.joining(", "));
+        return Result.fail()
+                .code(ResultCodeEnum.PARAM_ERROR.getCode())
+                .message(message);
+    }
+
+    /**
+     * 处理 Bean Validation 校验异常 (Service 参数校验)
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public Result<Object> handleConstraintViolationException(ConstraintViolationException e) {
+        log.error("【系统异常】约束校验错误: ", e);
+        String message = e.getConstraintViolations().stream()
+                .map(ConstraintViolation::getMessage)
+                .collect(Collectors.joining(", "));
+        return Result.fail()
+                .code(ResultCodeEnum.PARAM_ERROR.getCode())
+                .message(message);
     }
 
     /**

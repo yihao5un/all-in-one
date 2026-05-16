@@ -2,6 +2,7 @@ package com.uno.common.lock;
 
 import com.uno.common.exception.UnoException;
 import com.uno.common.result.ResultCodeEnum;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -28,11 +29,11 @@ import java.lang.reflect.Method;
 @Slf4j
 @Aspect
 @Component
+@RequiredArgsConstructor
 @Order(Ordered.HIGHEST_PRECEDENCE + 1) // 确保在事务和 Seata 之前运行
 public class DistributedLockAspect {
 
-    @Autowired
-    private RedissonClient redissonClient;
+    private final RedissonClient redissonClient;
 
     private final ExpressionParser parser = new SpelExpressionParser();
     private final DefaultParameterNameDiscoverer nameDiscoverer = new DefaultParameterNameDiscoverer();

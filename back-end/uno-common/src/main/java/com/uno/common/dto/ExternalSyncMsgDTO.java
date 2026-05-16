@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * 订单中心接收的外部三方同步消息。
@@ -18,6 +19,6 @@ public class ExternalSyncMsgDTO implements Serializable {
     @JsonProperty("orderNo")
     private String orderNo;
     private Long employeeId;
-    private Long productId;
+    private List<ProductItemDTO> products;
     private String type;
 }

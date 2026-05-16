@@ -23,9 +23,12 @@
             {{ employeeName(row.employeeId) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('order.product')" min-width="150">
+        <el-table-column :label="$t('order.product')" min-width="180">
           <template #default="{ row }">
-            {{ productName(row.productId) }}
+            <span v-if="row.productIds && row.productIds.length > 0">
+              {{ row.productIds.map(id => productName(id)).join(', ') }}
+            </span>
+            <span v-else>{{ productName(row.productId) }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="status" :label="$t('order.status')" min-width="150">
@@ -43,9 +46,12 @@
             {{ formatDate(row.createTime) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('order.actions')" width="220">
+        <el-table-column :label="$t('order.actions')" width="260">
           <template #default="{ row }">
             <el-button link type="primary" @click="viewDetails(row)">{{ $t('order.details') }}</el-button>
+            <el-button link type="warning" v-if="row.status === 'WAIT_EXTERNAL_SYNC'" :loading="processingIds.includes(row.id)" @click="triggerSync(row, 'EXTERNAL_SYNC_REQUESTED')">同步三方</el-button>
+            <el-button link type="success" v-if="row.status === 'PENDING_PAYMENT' && !row.billSyncSent" :loading="processingIds.includes(row.id)" @click="triggerSync(row, 'SETTLEMENT_CREATED')">同步账单</el-button>
+            <el-tag v-if="row.status === 'PENDING_PAYMENT' && row.billSyncSent" type="info" size="small" style="margin-left: 5px;">账单已生成</el-tag>
             <el-button link type="danger" v-if="row.status === 'PENDING'" @click="handleCancel(row)">{{ $t('order.cancel') }}</el-button>
             <el-button link type="danger" @click="handleDelete(row)">{{ $t('common.delete') }}</el-button>
           </template>
@@ -94,7 +100,8 @@
         </el-form-item>
         <el-form-item :label="$t('order.product')">
           <el-select
-            v-model="newOrder.productId"
+            v-model="newOrder.productIds"
+            multiple
             :placeholder="$t('order.selectProductPlaceholder')"
             style="width: 100%"
           >
@@ -106,6 +113,13 @@
               :disabled="product.status !== 1 || product.totalQuota <= product.usedQuota"
             />
           </el-select>
+          <!-- 数量选择器 -->
+          <div v-if="newOrder.productIds && newOrder.productIds.length > 0" style="margin-top: 10px;">
+            <div v-for="id in newOrder.productIds" :key="id" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+              <span style="font-size: 14px; color: #606266;">{{ productName(id) }}</span>
+              <el-input-number v-model="productCounts[id]" :min="1" size="small" />
+            </div>
+          </div>
         </el-form-item>
         <el-form-item :label="$t('order.notes')">
           <el-input v-model="newOrder.notes" type="textarea" :placeholder="$t('order.notes')" />
@@ -125,7 +139,12 @@
         <el-descriptions-item :label="$t('order.orderNo')">{{ selectedOrder?.orderNo }}</el-descriptions-item>
         <el-descriptions-item :label="$t('order.type')">{{ selectedOrder?.orderType ? $t(`order.${selectedOrder.orderType.toLowerCase()}`) : '-' }}</el-descriptions-item>
         <el-descriptions-item :label="$t('order.employee')">{{ employeeName(selectedOrder?.employeeId) }}</el-descriptions-item>
-        <el-descriptions-item :label="$t('order.product')">{{ productName(selectedOrder?.productId) }}</el-descriptions-item>
+        <el-descriptions-item :label="$t('order.product')">
+          <span v-if="selectedOrder?.productIds && selectedOrder?.productIds.length > 0">
+            {{ selectedOrder?.productIds.map(id => productName(id)).join(', ') }}
+          </span>
+          <span v-else>{{ productName(selectedOrder?.productId) }}</span>
+        </el-descriptions-item>
         <el-descriptions-item :label="$t('order.status')">
           <el-tag class="status-tag" :type="statusStyle(selectedOrder?.status)">{{ statusLabel(selectedOrder?.status) }}</el-tag>
         </el-descriptions-item>
@@ -143,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBusinessStore } from '@/store/business'
 import { useI18n } from 'vue-i18n'
@@ -195,9 +214,19 @@ const employeeName = (employeeId: number | string) => {
 const newOrder = ref({
   type: 'ONBOARD',
   employeeId: '',
-  productId: '',
+  productIds: [],
   notes: ''
 })
+
+const productCounts = ref<Record<string, number>>({})
+
+watch(() => newOrder.value.productIds, (newIds) => {
+  newIds.forEach(id => {
+    if (productCounts.value[id] === undefined) {
+      productCounts.value[id] = 1
+    }
+  })
+}, { deep: true })
 
 const typeStyle = (type: string) => {
   switch (type) {
@@ -247,7 +276,7 @@ const openCreateDialog = () => {
   newOrder.value = {
     type: 'ONBOARD',
     employeeId: '',
-    productId: '',
+    productIds: [],
     notes: ''
   }
   if (businessStore.products.length === 0) {
@@ -258,11 +287,18 @@ const openCreateDialog = () => {
 
 const handleCreate = async () => {
   try {
-    if (!newOrder.value.employeeId || !newOrder.value.productId) {
+    if (!newOrder.value.employeeId || !newOrder.value.productIds || newOrder.value.productIds.length === 0) {
       ElMessage.warning(t('order.createValidation'))
       return
     }
-    const result = await businessStore.createOrder(newOrder.value)
+    const payload = {
+      employeeId: newOrder.value.employeeId,
+      products: newOrder.value.productIds.map(id => ({
+        productId: id,
+        count: productCounts.value[id] || 1
+      }))
+    }
+    const result = await businessStore.createOrder(payload)
     const orderNo = result?.data?.orderNo
     ElMessage.success(orderNo ? `${t('common.success')}: ${orderNo}` : t('common.success'))
     createDialogVisible.value = false
@@ -298,6 +334,50 @@ const handleSizeChange = (val: number) => {
 const viewDetails = (row: any) => {
   selectedOrder.value = row
   detailVisible.value = true
+}
+
+const processingIds = ref<number[]>([])
+
+const triggerSync = async (row: any, eventType: string) => {
+  try {
+    processingIds.value.push(row.id)
+    await businessStore.triggerOutboxPublish(eventType)
+    ElMessage.success('请求已发送，正在后台处理...')
+    
+    // 开始轮询
+    startPolling(row.id, row.status)
+  } catch (err: any) {
+    ElMessage.error(err?.message || '同步失败')
+    processingIds.value = processingIds.value.filter(id => id !== row.id)
+  }
+}
+
+const startPolling = (rowId: number, oldStatus: string) => {
+  const timer = setInterval(async () => {
+    await loadOrders() // 刷新列表
+    
+    const updatedRow = orders.value.find((item: any) => item.id === rowId)
+    if (!updatedRow) {
+      clearInterval(timer)
+      processingIds.value = processingIds.value.filter(id => id !== rowId)
+      return
+    }
+    
+    const statusChanged = updatedRow.status !== oldStatus
+    const billSent = updatedRow.billSyncSent
+    
+    if (statusChanged || (oldStatus === 'PENDING_PAYMENT' && billSent)) {
+      clearInterval(timer)
+      processingIds.value = processingIds.value.filter(id => id !== rowId)
+      ElMessage.success('同步完成')
+    }
+  }, 1000)
+  
+  // 10秒超时
+  setTimeout(() => {
+    clearInterval(timer)
+    processingIds.value = processingIds.value.filter(id => id !== rowId)
+  }, 10000)
 }
 
 const handleDelete = async (row: any) => {

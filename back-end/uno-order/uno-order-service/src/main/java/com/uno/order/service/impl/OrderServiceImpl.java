@@ -5,94 +5,156 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.uno.common.dto.SettlementMsgDTO;
 import com.uno.common.exception.UnoException;
 import com.uno.common.dto.ExternalSyncMsgDTO;
+import com.uno.common.dto.ProductItemDTO;
+import java.util.stream.Collectors;
+import com.uno.common.enums.BizNoPrefixEnum;
 import com.uno.common.lock.DistributedLock;
+import com.uno.common.result.Result;
 import com.uno.common.result.ResultCodeEnum;
+import com.uno.common.util.BizNoGenerator;
+import com.uno.order.entity.OrderItem;
+import lombok.RequiredArgsConstructor;
 import com.uno.order.entity.Order;
 import com.uno.order.mapper.OrderMapper;
 import com.uno.order.service.OrderOutboxService;
 import com.uno.order.service.OrderService;
+import com.uno.order.service.OrderItemService;
+import com.uno.order.dto.OnboardRequestDTO;
+import com.uno.order.dto.OrderDTO;
+import com.uno.order.enums.OrderStatusEnum;
+import com.uno.order.enums.OrderSyncStatusEnum;
+import com.uno.order.enums.OrderTypeEnum;
 import com.uno.product.api.ProductFeignClient;
 import io.seata.spring.annotation.GlobalTransactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 
+import com.uno.order.mapper.OrderItemMapper;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Slf4j
 @Service
+@Validated
+@RequiredArgsConstructor
 public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements OrderService {
 
-    @Autowired
-    private ProductFeignClient productFeignClient;
+    private final ProductFeignClient productFeignClient;
 
-    @Autowired
-    private RocketMQTemplate rocketMQTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
 
-    @Autowired
-    private OrderOutboxService orderOutboxService;
+    private final OrderOutboxService orderOutboxService;
+
+    private final BizNoGenerator bizNoGenerator;
+
+    private final OrderItemService orderItemService;
 
     @Override
-    @DistributedLock(key = "'onboard:' + #employeeId", waitTime = 5, leaseTime = 30)
+    @DistributedLock(key = "'onboard:' + #onboardRequestDTO.employeeId", waitTime = 5, leaseTime = 30)
     @GlobalTransactional(name = "uno-onboard-flow", rollbackFor = Exception.class)
-    public String onboard(Long employeeId, Long productId, String orderNo) {
-        log.info("【入职全链路】开始执行: EmployeeID={}, ProductID={}, OrderNo={}", employeeId, productId, orderNo);
-        if (employeeId == null || productId == null || orderNo == null || orderNo.isBlank()) {
-            throw new UnoException("员工、产品和订单号不能为空", ResultCodeEnum.PARAM_ERROR.getCode());
-        }
+    public String onboard(OnboardRequestDTO onboardRequestDTO) {
+        String orderNo = bizNoGenerator.generate(BizNoPrefixEnum.ONBOARD);
+        onboardRequestDTO.setOrderNo(orderNo);
+
+        Long employeeId = onboardRequestDTO.getEmployeeId();
+        List<ProductItemDTO> products = onboardRequestDTO.getProducts();
+
+        log.info("【入职全链路】开始执行: EmployeeID={}, Products={}, OrderNo={}", employeeId, products, orderNo);
         
-        // 1. 业务层幂等：检查该员工是否已有订单，防止 Redis 幂等失效后的漏网之鱼。
+        // 1. 业务层幂等：检查该员工是否已有订单，防止 Redis 幂等失效。
         Long count = this.baseMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getEmployeeId, employeeId));
         if (count > 0) {
             log.warn("[业务幂等] 发现重复入职申请, EmployeeId: {}", employeeId);
             throw new UnoException("该员工已入职，请勿重复操作", ResultCodeEnum.FAIL.getCode());
         }
 
-        // 2. 创建订单。状态先落 CREATED，后续通过状态机推进。
-        Order order = new Order();
-        order.setOrderNo(orderNo);
-        order.setEmployeeId(employeeId);
-        order.setProductId(productId);
-        order.setOrderType("ONBOARD");
-        order.setStatus("CREATED");
-        order.setThirdSyncStatus("NOT_SYNCED");
-        order.setThirdRetryCount(0);
-        order.setRemark("入职调派订单：等待产品名额扣减");
+        // 2. 创建订单主表。因为紧接着就要处理，直接以 PROCESSING（处理中）状态落库，节省一次 DB 的 UPDATE 操作。
+        Order order = Order.builder()
+                .orderNo(orderNo)
+                .employeeId(employeeId)
+                .orderType(OrderTypeEnum.ONBOARD.getCode())
+                .status(OrderStatusEnum.PROCESSING.getCode())
+                .thirdSyncStatus(OrderSyncStatusEnum.NOT_SYNCED.getCode())
+                .thirdRetryCount(0)
+                .remark("入职调派订单：正在扣减产品名额")
+                .build();
         this.save(order);
-        log.info("步骤1: 订单已创建 - {}", orderNo);
+        
+        // 2.5 批量创建订单明细表。
+        List<OrderItem> orderItemList = products.stream().map(p ->
+            OrderItem.builder()
+                    .orderNo(orderNo)
+                    .productId(p.getProductId())
+                    .count(p.getCount())
+                    .build()
+        ).collect(Collectors.toList());
+        orderItemService.saveBatch(orderItemList);
+        log.info("步骤1: 订单及明细已创建并进入处理中 - {}", orderNo);
 
-        // 3. 订单进入处理中，并在同一个 Seata 全局事务中扣减产品名额。
-        order.setStatus("PROCESSING");
-        order.setRemark("入职调派订单：正在扣减产品名额");
-        this.updateById(order);
-        log.info("步骤2: 订单进入 PROCESSING，准备通过 Feign 调用产品中心扣减名额...");
-        com.uno.common.result.Result<Object> deductResult = productFeignClient.deduct(productId, 1, orderNo);
+        log.info("步骤2: 准备通过 Feign 调用产品中心批量扣减名额...");
+        Result<Object> deductResult = productFeignClient.deduct(products, orderNo);
         if (deductResult.getCode() != 200) {
-            throw new com.uno.common.exception.UnoException(deductResult.getMessage(), deductResult.getCode());
+            throw new UnoException("批量扣减产品名额失败: " + deductResult.getMessage(), deductResult.getCode());
         }
 
-        // 模拟异常：使用 equals 比较对象数值，避免 == 的缓存坑
-        if (Long.valueOf(999).equals(productId)) {
+        // 模拟异常：使用 contains 比较，避免 == 的缓存坑
+        List<Long> productIds = products.stream().map(ProductItemDTO::getProductId).toList();
+        if (productIds.contains(999L)) {
             log.error("触发模拟异常，准备全局回滚！");
             throw new UnoException("【模拟异常】Seata 应该让刚才创建的订单也消失！");
         }
 
         // 4. 内部强一致链路完成，外部三方系统进入异步最终一致阶段。
-        order.setStatus("WAIT_EXTERNAL_SYNC");
-        order.setThirdSyncStatus("NOT_SYNCED");
+        order.setStatus(OrderStatusEnum.WAIT_EXTERNAL_SYNC.getCode());
+        order.setThirdSyncStatus(OrderSyncStatusEnum.NOT_SYNCED.getCode());
         order.setRemark("入职调派订单：产品名额已扣减，等待第三方系统同步");
         this.updateById(order);
-        orderOutboxService.saveExternalSyncEvent(new ExternalSyncMsgDTO(orderNo, employeeId, productId, "ONBOARD"));
+
+        orderOutboxService.saveExternalSyncEvent(new ExternalSyncMsgDTO(orderNo, employeeId, products, OrderTypeEnum.ONBOARD.getCode()));
         log.info("【入职核心链路】执行成功！订单与产品名额已通过 Seata AT 保持一致，等待外部三方同步。");
         return orderNo;
     }
 
     @Override
+    public OrderDTO getOrderDTO(String orderNo) {
+        Order order = this.getOne(new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, orderNo));
+        if (order == null) {
+            return null;
+        }
+        
+        List<Long> productIds = orderItemService.list(
+                new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderNo, orderNo)
+        ).stream().map(OrderItem::getProductId).collect(Collectors.toList());
+
+        OrderDTO dto = new OrderDTO();
+        dto.setId(order.getId());
+        dto.setOrderNo(order.getOrderNo());
+        dto.setEmployeeId(order.getEmployeeId());
+        dto.setProductIds(productIds);
+        dto.setOrderType(order.getOrderType());
+        dto.setStatus(order.getStatus());
+        dto.setThirdSyncStatus(order.getThirdSyncStatus());
+        dto.setThirdRequestId(order.getThirdRequestId());
+        dto.setThirdResponseCode(order.getThirdResponseCode());
+        dto.setThirdSyncTime(order.getThirdSyncTime() == null ? null : order.getThirdSyncTime().toString());
+        dto.setThirdSyncMsg(order.getThirdSyncMsg());
+        dto.setThirdRetryCount(order.getThirdRetryCount());
+        dto.setRemark(order.getRemark());
+        
+        return dto;
+    }
+
+    @Override
     public Order markExternalSyncing(String orderNo, String requestId) {
         Order order = getOrderOrThrow(orderNo);
-        order.setStatus("WAIT_EXTERNAL_SYNC");
-        order.setThirdSyncStatus("SYNCING");
+        order.setStatus(OrderStatusEnum.WAIT_EXTERNAL_SYNC.getCode());
+        order.setThirdSyncStatus(OrderSyncStatusEnum.SYNCING.getCode());
         order.setThirdRequestId(requestId);
         order.setThirdResponseCode(null);
         order.setThirdSyncMsg("第三方系统同步中");
@@ -104,8 +166,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @Override
     public Order markExternalSyncSuccess(String orderNo, String requestId, String responseCode, String message) {
         Order order = getOrderOrThrow(orderNo);
-        order.setStatus("PENDING_PAYMENT");
-        order.setThirdSyncStatus("SUCCESS");
+        order.setStatus(OrderStatusEnum.PENDING_PAYMENT.getCode());
+        order.setThirdSyncStatus(OrderSyncStatusEnum.SUCCESS.getCode());
         order.setThirdRequestId(requestId);
         order.setThirdResponseCode(responseCode);
         order.setThirdSyncTime(LocalDateTime.now());
@@ -116,7 +178,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     @Override
-    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Order markExternalSyncSuccessAndSaveSettlementEvent(String orderNo,
                                                                String requestId,
                                                                String responseCode,
@@ -136,12 +198,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         order.setThirdResponseCode(responseCode);
         order.setThirdSyncMsg(message);
         if (finalFailure) {
-            order.setStatus("SYNC_FAILED");
-            order.setThirdSyncStatus("FAILED");
+            order.setStatus(OrderStatusEnum.SYNC_FAILED.getCode());
+            order.setThirdSyncStatus(OrderSyncStatusEnum.FAILED.getCode());
             order.setRemark("入职调派订单：第三方同步失败，等待人工处理或补偿任务");
         } else {
-            order.setStatus("WAIT_EXTERNAL_SYNC");
-            order.setThirdSyncStatus("SYNCING");
+            order.setStatus(OrderStatusEnum.WAIT_EXTERNAL_SYNC.getCode());
+            order.setThirdSyncStatus(OrderSyncStatusEnum.SYNCING.getCode());
             order.setRemark("入职调派订单：第三方同步失败，等待自动重试");
         }
         this.updateById(order);
@@ -151,16 +213,21 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @Override
     public void retryExternalSync(String orderNo) {
         Order order = getOrderOrThrow(orderNo);
-        if (!"WAIT_EXTERNAL_SYNC".equals(order.getStatus()) && !"SYNC_FAILED".equals(order.getStatus())) {
+        if (!OrderStatusEnum.WAIT_EXTERNAL_SYNC.getCode().equals(order.getStatus()) 
+                && !OrderStatusEnum.SYNC_FAILED.getCode().equals(order.getStatus())) {
             throw new UnoException("当前订单状态不允许重试第三方同步: " + order.getStatus(), ResultCodeEnum.FAIL.getCode());
         }
-        order.setStatus("WAIT_EXTERNAL_SYNC");
-        order.setThirdSyncStatus("NOT_SYNCED");
+        order.setStatus(OrderStatusEnum.WAIT_EXTERNAL_SYNC.getCode());
+        order.setThirdSyncStatus(OrderSyncStatusEnum.NOT_SYNCED.getCode());
         order.setThirdSyncMsg("人工触发第三方同步重试");
         order.setRemark("入职调派订单：已重新投递第三方同步消息");
         this.updateById(order);
 
-        ExternalSyncMsgDTO msg = new ExternalSyncMsgDTO(order.getOrderNo(), order.getEmployeeId(), order.getProductId(), order.getOrderType());
+        List<ProductItemDTO> products = orderItemService.list(
+                new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderNo, order.getOrderNo())
+        ).stream().map(item -> new ProductItemDTO(item.getProductId(), item.getCount())).collect(Collectors.toList());
+
+        ExternalSyncMsgDTO msg = new ExternalSyncMsgDTO(order.getOrderNo(), order.getEmployeeId(), products, order.getOrderType());
         rocketMQTemplate.convertAndSend("uno-external-sync-topic", msg);
     }
 
@@ -177,7 +244,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @Override
     public Order markSettled(String orderNo) {
         Order order = getOrderOrThrow(orderNo);
-        order.setStatus("SETTLED");
+        order.setStatus(OrderStatusEnum.SETTLED.getCode());
         order.setRemark("入职调派订单：账单已支付，订单已结算");
         this.updateById(order);
         return order;
@@ -193,16 +260,16 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         
         // 简易状态机流转设计：CREATED -> PROCESSING -> WAIT_EXTERNAL_SYNC -> PENDING_PAYMENT -> SETTLED -> CLOSED
         // 真实面试时，这里可以说使用的是状态模式(State Pattern)或者是 Spring Statemachine
-        if ("CREATED".equals(currentStatus)) {
-            order.setStatus("PROCESSING");
-        } else if ("PROCESSING".equals(currentStatus)) {
-            order.setStatus("WAIT_EXTERNAL_SYNC");
-        } else if ("WAIT_EXTERNAL_SYNC".equals(currentStatus)) {
-            order.setStatus("PENDING_PAYMENT");
-        } else if ("PENDING_PAYMENT".equals(currentStatus)) {
-            order.setStatus("SETTLED");
-        } else if ("SETTLED".equals(currentStatus)) {
-            order.setStatus("CLOSED");
+        if (OrderStatusEnum.CREATED.getCode().equals(currentStatus)) {
+            order.setStatus(OrderStatusEnum.PROCESSING.getCode());
+        } else if (OrderStatusEnum.PROCESSING.getCode().equals(currentStatus)) {
+            order.setStatus(OrderStatusEnum.WAIT_EXTERNAL_SYNC.getCode());
+        } else if (OrderStatusEnum.WAIT_EXTERNAL_SYNC.getCode().equals(currentStatus)) {
+            order.setStatus(OrderStatusEnum.PENDING_PAYMENT.getCode());
+        } else if (OrderStatusEnum.PENDING_PAYMENT.getCode().equals(currentStatus)) {
+            order.setStatus(OrderStatusEnum.SETTLED.getCode());
+        } else if (OrderStatusEnum.SETTLED.getCode().equals(currentStatus)) {
+            order.setStatus(OrderStatusEnum.CLOSED.getCode());
         } else {
             throw new UnoException("订单已结束或状态异常，无法推进: " + currentStatus, ResultCodeEnum.FAIL.getCode());
         }
@@ -219,5 +286,34 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             throw new UnoException("订单不存在", ResultCodeEnum.FAIL.getCode());
         }
         return order;
+    }
+
+    /**
+     * 使用 RocketMQ 事务消息改写后的入口
+     */
+    public void onboardViaTxMsg(OnboardRequestDTO onboardRequestDTO) {
+        // 1. 提前生成业务单号（非常重要，因为它是事务的唯一标识，也是反查的依据）
+        String orderNo = bizNoGenerator.generate(BizNoPrefixEnum.ONBOARD);
+        onboardRequestDTO.setOrderNo(orderNo);
+
+        // 2. 构建 Spring Message 对象
+        Message<OnboardRequestDTO> message = MessageBuilder
+                .withPayload(onboardRequestDTO)
+                .setHeader("KEYS", orderNo) // 把单号塞进 Header，方便反查时提取
+                .build();
+
+        // 🚨 3. 发送事务消息（核心巨无霸方法）
+        // 参数 1: "uno-external-sync-topic" -> 最终投递的 Topic
+        // 参数 2: message -> 消息体
+        // 参数 3: onboardRequestDTO -> 传递给本地事务执行器（Listener）的参数对象
+        log.info("[事务消息] 🌟 准备向 RocketMQ 发送 Half 消息. OrderNo={}", orderNo);
+        
+        rocketMQTemplate.sendMessageInTransaction(
+                "uno-external-sync-topic", 
+                message, 
+                onboardRequestDTO
+        );
+        
+        log.info("[事务消息] 🌟 Half 消息发送完成，剩下的交给 Listener 了！OrderNo={}", orderNo);
     }
 }

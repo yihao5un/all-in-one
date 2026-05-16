@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * 结算中心接收的消息实体
@@ -18,6 +19,6 @@ public class SettlementMsgDTO implements Serializable {
     @JsonProperty("orderNo")
     private String orderNo;     // 订单号
     private Long employeeId;    // 员工ID
-    private Long productId;     // 产品ID
+    private List<ProductItemDTO> products; // 产品列表
     private String type;        // 业务类型: ONBOARD, BONUS, etc.
 }

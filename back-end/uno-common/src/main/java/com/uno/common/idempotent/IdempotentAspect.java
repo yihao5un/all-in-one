@@ -2,6 +2,7 @@ package com.uno.common.idempotent;
 
 import com.uno.common.exception.UnoException;
 import com.uno.common.result.ResultCodeEnum;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -29,11 +30,11 @@ import java.time.LocalDateTime;
 @Slf4j
 @Aspect
 @Component
+@RequiredArgsConstructor
 @Order(Ordered.HIGHEST_PRECEDENCE + 2) // 在分布式锁之后运行，即：先拿锁，再验幂等
 public class IdempotentAspect {
 
-    @Autowired
-    private RedissonClient redissonClient;
+    private final RedissonClient redissonClient;
 
     private final ExpressionParser parser = new SpelExpressionParser();
     private final DefaultParameterNameDiscoverer nameDiscoverer = new DefaultParameterNameDiscoverer();

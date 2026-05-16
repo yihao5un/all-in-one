@@ -2,10 +2,10 @@ package com.uno.settlement.rocketmq;
 
 import com.uno.common.dto.SettlementMsgDTO;
 import com.uno.settlement.service.BillService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,11 +14,11 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 @RocketMQMessageListener(topic = "uno-settlement-topic", consumerGroup = "uno-settlement-group")
 public class SettlementConsumer implements RocketMQListener<SettlementMsgDTO> {
 
-    @Autowired
-    private BillService billService;
+    private final BillService billService;
 
     @Override
     public void onMessage(SettlementMsgDTO message) {
@@ -31,7 +31,7 @@ public class SettlementConsumer implements RocketMQListener<SettlementMsgDTO> {
         }
 
         // BillService 内部先按 orderNo 做幂等检查，数据库唯一索引 uk_order_no 兜底。
-        billService.createBill(message.getOrderNo(), message.getEmployeeId(), message.getProductId(), message.getType());
+        billService.createBill(message.getOrderNo(), message.getEmployeeId(), message.getProducts(), message.getType());
         
         log.info("✅ [结算中心] 账单处理完成！OrderNo: {}", message.getOrderNo());
     }

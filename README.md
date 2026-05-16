@@ -184,8 +184,13 @@ graph TB
 | Redisson 分布式锁 | 已落地 | 入职、产品扣减、账单支付使用业务维度锁 |
 | Watchdog 自动续期 | 已落地 | 支付链路使用 `leaseTime = -1` 触发 Redisson Watchdog |
 | 锁 + DB 唯一约束双重保证 | 已落地 | 账单生成依赖唯一约束兜底，支付依赖锁和状态机幂等 |
+| 锁与事务的切面顺序 (AOP Order) | 已落地 | 锁优先级高于事务，确保“先加锁 -> 再开事务 -> 提交事务 -> 释放锁”，防止并发间隙 |
 | Redis Sentinel 高可用 | 规划/部署演进 | 当前本地 compose 使用 Redis 主从演示，生产可扩展 Sentinel/Cluster |
 | 缓存穿透/击穿/雪崩 | 规划/面试说明 | 产品信息缓存策略可作为后续扩展 |
+
+> [!NOTE]
+> **核心面试题：分布式锁与事务的执行顺序**
+> 必须确保**锁的范围大于事务的范围**。如果先开事务再加锁，等待锁的请求会白白占用数据库连接，且在锁释放而事务未提交的瞬间，其他线程抢到锁冲进来仍会读到旧数据，导致幂等失效。本项目通过 `@Order(Ordered.HIGHEST_PRECEDENCE + 1)` 确保了分布式锁切面在外层运行。
 
 ### 4.4 数据库 → MySQL + ShardingSphere
 
@@ -326,6 +331,7 @@ graph TB
 - [x] 订单状态闭环：`CREATED -> PROCESSING -> WAIT_EXTERNAL_SYNC -> PENDING_PAYMENT -> SETTLED`
 - [x] 支付闭环：账单 `PENDING -> PAID` 后通过 Feign 反写订单 `SETTLED`
 - [x] 补生成账单兜底入口：仅接收 `orderNo`，后端回查订单服务并校验待支付状态
+- [x] 多选产品与独立计数：支持单笔订单多选产品并独立指定数量，全链路穿透至产品和结算中心
 
 ### Phase 4：高并发与幂等加固（2-3 天）
 - [x] Redisson 分布式锁：解决入职抢单并发问题 (Done)

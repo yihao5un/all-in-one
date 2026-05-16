@@ -11,6 +11,8 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+import io.jsonwebtoken.Claims;
+import com.uno.common.utils.JwtUtils;
 
 import java.util.List;
 
@@ -53,7 +55,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             }
             
             // 解析 Token
-            io.jsonwebtoken.Claims claims = com.uno.common.utils.JwtUtils.parseToken(token);
+            Claims claims = JwtUtils.parseToken(token);
             String userId = claims.getSubject();
             
             // 传递用户信息给下游

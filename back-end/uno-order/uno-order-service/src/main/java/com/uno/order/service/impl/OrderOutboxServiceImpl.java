@@ -30,6 +30,11 @@ public class OrderOutboxServiceImpl extends ServiceImpl<OrderOutboxMapper, Order
     private static final String SETTLEMENT_TOPIC = "uno-settlement-topic";
     private static final String EVENT_TYPE_EXTERNAL_SYNC = "EXTERNAL_SYNC_REQUESTED";
     private static final String EVENT_TYPE_SETTLEMENT_CREATED = "SETTLEMENT_CREATED";
+    
+    private static final String STATUS_PENDING = "PENDING";
+    private static final String STATUS_SENT = "SENT";
+    private static final String STATUS_FAILED = "FAILED";
+    private static final String STATUS_PROCESSING = "PROCESSING";
 
     private final RocketMQTemplate rocketMQTemplate;
     private final ObjectMapper objectMapper;
@@ -52,36 +57,48 @@ public class OrderOutboxServiceImpl extends ServiceImpl<OrderOutboxMapper, Order
     }
 
     private void saveEvent(String bizNo, String eventType, String topic, String messageKey, Object message) {
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(message);
+        } catch (JsonProcessingException e) {
+            throw new UnoException("Outbox 消息序列化失败: " + e.getMessage());
+        }
+
         OrderOutbox outbox = new OrderOutbox();
         outbox.setBizNo(bizNo);
         outbox.setEventType(eventType);
         outbox.setTopic(topic);
         outbox.setMessageKey(messageKey);
-        outbox.setStatus("PENDING");
+        outbox.setStatus(STATUS_PENDING);
         outbox.setRetryCount(0);
         outbox.setNextRetryTime(LocalDateTime.now());
+        outbox.setPayload(payload);
+
         try {
-            outbox.setPayload(objectMapper.writeValueAsString(message));
             this.save(outbox);
         } catch (DuplicateKeyException e) {
             log.info("[Outbox] 事件已存在，跳过重复写入. BizNo={}, EventType={}", bizNo, eventType);
-        } catch (JsonProcessingException e) {
-            throw new UnoException("Outbox 消息序列化失败: " + e.getMessage());
         }
     }
 
     @Override
-    public void publishPendingMessages(int batchSize) {
+    public void publishPendingMessages(int batchSize, String eventType) {
         LocalDateTime now = LocalDateTime.now();
-        List<OrderOutbox> messages = this.list(new LambdaQueryWrapper<OrderOutbox>()
-                .and(wrapper -> wrapper
+        LambdaQueryWrapper<OrderOutbox> wrapper = new LambdaQueryWrapper<OrderOutbox>()
+                .and(w -> w
                         .in(OrderOutbox::getStatus, "PENDING", "FAILED")
                         .le(OrderOutbox::getNextRetryTime, now)
                         .or()
                         .eq(OrderOutbox::getStatus, "PROCESSING")
                         .le(OrderOutbox::getUpdateTime, now.minusMinutes(5)))
                 .orderByAsc(OrderOutbox::getId)
-                .last("limit " + batchSize));
+                .last("limit " + batchSize);
+
+        if (eventType != null && !eventType.trim().isEmpty()) {
+            wrapper.eq(OrderOutbox::getEventType, eventType);
+        }
+
+        List<OrderOutbox> messages = this.list(wrapper);
 
         for (OrderOutbox outbox : messages) {
             publishOne(outbox);

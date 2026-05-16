@@ -15,8 +15,9 @@ public class OrderOutboxPublishTask {
         this.orderOutboxService = orderOutboxService;
     }
 
-    @Scheduled(fixedDelayString = "${uno.outbox.publish-delay-ms:1800000}")
+    @Scheduled(fixedDelayString = "${uno.outbox.publish-delay-ms:180000}")
+//    @Scheduled(fixedDelayString = "${uno.outbox.publish-delay-ms:5000}")
     public void publishPendingMessages() {
-        orderOutboxService.publishPendingMessages(50);
+        orderOutboxService.publishPendingMessages(50, null);
     }
 }
