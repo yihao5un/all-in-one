@@ -93,7 +93,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                     .productId(p.getProductId())
                     .count(p.getCount())
                     .build()
-        ).collect(Collectors.toList());
+        ).toList();
         orderItemService.saveBatch(orderItemList);
         log.info("步骤1: 订单及明细已创建并进入处理中 - {}", orderNo);
 
