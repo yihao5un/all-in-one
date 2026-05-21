@@ -22,7 +22,8 @@ export default {
     failed: 'Failed',
     refresh: 'Refresh',
     actions: 'Actions',
-    details: 'Details'
+    details: 'Details',
+    reset: 'Reset'
   },
   login: {
     title: 'Uno HR System',
@@ -92,7 +93,10 @@ export default {
     deleteConfirm: 'Are you sure you want to delete this order?',
     searchEmployeePlaceholder: 'Search employee by name or ID',
     selectProductPlaceholder: 'Select the benefit product for this employee',
-    createValidation: 'Please select an employee and a benefit product'
+    createValidation: 'Please select an employee and a benefit product',
+    searchKeywordLabel: 'Fuzzy Search',
+    searchKeywordPlaceholder: 'Employee name / product / order no',
+    selectStatusPlaceholder: 'Select status'
   },
   product: {
     title: 'Product & Quota Management',

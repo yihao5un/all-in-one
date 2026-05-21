@@ -2,7 +2,7 @@
 ### 目标：验证账单列表查询、为待支付订单补生成账单、支付账单后反写订单状态。
 ### 推荐先运行 05-rocketmq-integration-test.http 创建一条新的待支付订单和账单。
 
-@baseUrl = http://[::1]:8080
+@baseUrl = http://[::1]:8088
 @seedOrderNo = ORD2026051000001
 
 ### 1. 登录获取 Token

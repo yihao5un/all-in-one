@@ -2,7 +2,7 @@
 ### 目标：验证入职本地事务中订单创建 + 产品扣减的一致性。
 ### 说明：当前 /order/onboard 通过 RocketMQ 事务消息触发本地 Seata 事务。
 
-@baseUrl = http://[::1]:8080
+@baseUrl = http://[::1]:8088
 @productId = 101
 @badProductId = 999
 

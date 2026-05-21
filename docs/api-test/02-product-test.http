@@ -2,7 +2,7 @@
 ### 目标：验证产品列表查询、产品名额扣减。
 ### 注意：扣减接口会真实修改 t_product.used_quota，重复运行会持续 +1。
 
-@baseUrl = http://[::1]:8080
+@baseUrl = http://[::1]:8088
 @productId = 101
 @deductCount = 1
 

@@ -387,7 +387,7 @@ graph TB
 ```text
 前端登录
   -> POST /api/auth/login
-  -> Vite proxy 转发到 Gateway 8080
+  -> Vite proxy 转发到 Gateway 8088
   -> Gateway 白名单放行 /auth/login
   -> uno-auth 校验 sys_user
   -> JwtUtils 签发 JWT

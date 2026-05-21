@@ -10,7 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(scanBasePackages = "com.uno")
 @EnableDiscoveryClient
-@EnableFeignClients(basePackages = "com.uno.product.api")
+@EnableFeignClients(basePackages = {"com.uno.product.api", "com.uno.order.feign"})
 @MapperScan("com.uno.order.mapper")
 @EnableAspectJAutoProxy(exposeProxy = true)
 @EnableScheduling

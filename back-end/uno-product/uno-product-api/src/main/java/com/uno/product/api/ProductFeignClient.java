@@ -18,4 +18,10 @@ public interface ProductFeignClient {
     @PostMapping("/product/deduct")
     Result<Object> deduct(@RequestBody List<ProductItemDTO> items,
                           @RequestParam("bizNo") String bizNo);
+
+    /**
+     * 远程调用获取所有产品列表
+     */
+    @org.springframework.web.bind.annotation.GetMapping("/product/list")
+    Result<List<java.util.Map<String, Object>>> list();
 }

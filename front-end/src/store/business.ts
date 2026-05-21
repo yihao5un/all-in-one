@@ -12,11 +12,13 @@ export const useBusinessStore = defineStore('business', {
   }),
   
   actions: {
-    async fetchOrders(page = 1, limit = 20) {
+    async fetchOrders(page = 1, limit = 20, queryParams: any = {}) {
       this.loading = true
       try {
-        const response = await request.get('/order/list', {
-          params: { page, limit }
+        const hasFilter = queryParams.keyword || queryParams.status
+        const url = hasFilter ? '/order/search' : '/order/list'
+        const response = await request.get(url, {
+          params: { page, limit, ...queryParams }
         })
         // Support both list and Page result
         const resultData = response.data.data

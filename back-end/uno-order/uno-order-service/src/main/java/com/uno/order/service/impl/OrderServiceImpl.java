@@ -34,6 +34,8 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.context.ApplicationEventPublisher;
+import com.uno.order.event.OrderSyncEvent;
 
 import com.uno.order.mapper.OrderItemMapper;
 import java.time.LocalDateTime;
@@ -54,6 +56,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final BizNoGenerator bizNoGenerator;
 
     private final OrderItemService orderItemService;
+
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @DistributedLock(key = "'onboard:' + #onboardRequestDTO.employeeId", waitTime = 5, leaseTime = 30)
@@ -118,6 +122,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         orderOutboxService.saveExternalSyncEvent(new ExternalSyncMsgDTO(orderNo, employeeId, products, OrderTypeEnum.ONBOARD.getCode()));
         log.info("【入职核心链路】执行成功！订单与产品名额已通过 Seata AT 保持一致，等待外部三方同步。");
+        eventPublisher.publishEvent(new OrderSyncEvent(this, orderNo));
         return orderNo;
     }
 
@@ -160,6 +165,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         order.setThirdSyncMsg("第三方系统同步中");
         order.setRemark("入职调派订单：正在同步第三方外服系统");
         this.updateById(order);
+        eventPublisher.publishEvent(new OrderSyncEvent(this, orderNo));
         return order;
     }
 
@@ -174,6 +180,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         order.setThirdSyncMsg(message);
         order.setRemark("入职调派订单：第三方同步成功，等待账单支付");
         this.updateById(order);
+        eventPublisher.publishEvent(new OrderSyncEvent(this, orderNo));
         return order;
     }
 
@@ -207,6 +214,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             order.setRemark("入职调派订单：第三方同步失败，等待自动重试");
         }
         this.updateById(order);
+        eventPublisher.publishEvent(new OrderSyncEvent(this, orderNo));
         return order;
     }
 
@@ -229,6 +237,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         ExternalSyncMsgDTO msg = new ExternalSyncMsgDTO(order.getOrderNo(), order.getEmployeeId(), products, order.getOrderType());
         rocketMQTemplate.convertAndSend("uno-external-sync-topic", msg);
+        eventPublisher.publishEvent(new OrderSyncEvent(this, orderNo));
     }
 
     @Override
@@ -247,6 +256,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         order.setStatus(OrderStatusEnum.SETTLED.getCode());
         order.setRemark("入职调派订单：账单已支付，订单已结算");
         this.updateById(order);
+        eventPublisher.publishEvent(new OrderSyncEvent(this, orderNo));
         return order;
     }
 
@@ -276,7 +286,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         this.updateById(order);
         log.info("🎯 订单 {} 状态流转成功: {} ➡️ {}", orderNo, currentStatus, order.getStatus());
-        
+        eventPublisher.publishEvent(new OrderSyncEvent(this, orderNo));
         return order;
     }
 

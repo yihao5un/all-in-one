@@ -3,7 +3,7 @@
 ### 说明：HTTP Client 顺序执行不等于真正并发；这里主要验证业务幂等。
 ### 真正并发可用文件末尾的 wrk/ab/curl 并发命令手动压测。
 
-@baseUrl = http://[::1]:8080
+@baseUrl = http://[::1]:8088
 @employeeId = 260514999
 @productId = 101
 
@@ -55,9 +55,9 @@ Authorization: Bearer {{auth_token}}
 
 ### 5. 手动并发压测参考
 ### 先在终端拿 token：
-### TOKEN=$(curl -g -sS -X POST 'http://[::1]:8080/auth/login' -H 'Content-Type: application/x-www-form-urlencoded' --data 'username=admin&password=123456' | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+### TOKEN=$(curl -g -sS -X POST 'http://[::1]:8088/auth/login' -H 'Content-Type: application/x-www-form-urlencoded' --data 'username=admin&password=123456' | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
 ###
 ### 然后用同一个 employeeId 并发打 20 次：
-### seq 1 20 | xargs -I{} -P 20 curl -g -sS -X POST -H "Authorization: Bearer $TOKEN" "http://[::1]:8080/order/onboard?employeeId=260515000&productId=101"
+### seq 1 20 | xargs -I{} -P 20 curl -g -sS -X POST -H "Authorization: Bearer $TOKEN" "http://[::1]:8088/order/onboard?employeeId=260515000&productId=101"
 ###
 ### 预期：最多只有 1 条成功进入 WAIT_EXTERNAL_SYNC，其余应被 Redisson 锁或业务幂等拦截。

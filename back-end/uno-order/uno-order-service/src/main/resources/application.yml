@@ -1,2 +1,6 @@
 # Runtime configuration is loaded from Nacos Config:
 # dataId: uno-order-dev.yaml
+
+spring:
+  elasticsearch:
+    uris: http://127.0.0.1:9200

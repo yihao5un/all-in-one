@@ -22,7 +22,8 @@ export default {
     failed: '失败',
     refresh: '刷新',
     actions: '操作',
-    details: '详情'
+    details: '详情',
+    reset: '重置'
   },
   login: {
     title: '外服人事系统',
@@ -92,7 +93,10 @@ export default {
     deleteConfirm: '您确定要删除此订单吗？',
     searchEmployeePlaceholder: '输入姓名或ID搜索员工',
     selectProductPlaceholder: '请选择员工要领取的福利产品',
-    createValidation: '请选择员工和福利产品'
+    createValidation: '请选择员工和福利产品',
+    searchKeywordLabel: '模糊检索',
+    searchKeywordPlaceholder: '输入员工姓名/产品名称/订单号',
+    selectStatusPlaceholder: '选择订单状态'
   },
   product: {
     title: '产品与配额管理',

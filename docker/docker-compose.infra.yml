@@ -318,6 +318,33 @@ services:
     networks:
       - uno-network
 
+  # ==========================================
+  # Elasticsearch & Kibana (v7.17.14)
+  # ==========================================
+  elasticsearch:
+    image: elasticsearch:7.17.14
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    networks:
+      - uno-network
+
+  kibana:
+    image: kibana:7.17.14
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - uno-network
+    depends_on:
+      - elasticsearch
+
 networks:
   uno-network:
     driver: bridge

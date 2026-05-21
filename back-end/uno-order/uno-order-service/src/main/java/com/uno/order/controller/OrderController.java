@@ -17,6 +17,9 @@ import com.uno.order.service.OrderService;
 import org.springframework.beans.BeanUtils;
 import java.util.stream.Collectors;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Collections;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,6 +27,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.SearchHits;
+import org.springframework.data.elasticsearch.core.SearchHit;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.util.StringUtils;
+import com.uno.order.es.EsOrderDoc;
 
 import java.util.UUID;
 
@@ -37,6 +48,7 @@ public class OrderController {
     private final OrderService orderService;
     private final OrderOutboxService orderOutboxService;
     private final OrderItemService orderItemService;
+    private final ElasticsearchOperations elasticsearchOperations;
 
     // 已移除 idGenerator，由 Service 内部处理逻辑
 
@@ -49,25 +61,44 @@ public class OrderController {
         Page<Order> orderPage = new Page<>(page, limit);
         orderService.page(orderPage, new LambdaQueryWrapper<Order>().orderByDesc(Order::getCreateTime));
         
-        List<OrderDTO> dtos = orderPage.getRecords().stream().map(order -> {
+        List<Order> orders = orderPage.getRecords();
+        if (orders.isEmpty()) {
+            Page<OrderDTO> emptyPage = new Page<>(page, limit);
+            emptyPage.setRecords(Collections.emptyList());
+            emptyPage.setTotal(0);
+            return Result.success(emptyPage);
+        }
+
+        // 批量提取订单号，用于 IN 查询，规避 N+1 慢 SQL 问题
+        List<String> orderNos = orders.stream().map(Order::getOrderNo).collect(Collectors.toList());
+
+        // 1. 批量查询订单明细
+        List<OrderItem> items = orderItemService.list(new LambdaQueryWrapper<OrderItem>()
+                .in(OrderItem::getOrderNo, orderNos));
+        
+        // 分组整理产品 ID 列表
+        Map<String, List<Long>> productIdsMap = items.stream().collect(Collectors.groupingBy(
+                OrderItem::getOrderNo,
+                Collectors.mapping(OrderItem::getProductId, Collectors.toList())
+        ));
+
+        // 2. 批量查询 Outbox 的结算消息投递状态
+        List<OrderOutbox> outboxes = orderOutboxService.list(new LambdaQueryWrapper<OrderOutbox>()
+                .in(OrderOutbox::getBizNo, orderNos)
+                .eq(OrderOutbox::getEventType, "SETTLEMENT_CREATED")
+                .eq(OrderOutbox::getStatus, "SENT"));
+        
+        Set<String> sentBizNos = outboxes.stream()
+                .map(OrderOutbox::getBizNo)
+                .collect(Collectors.toSet());
+
+        // 3. 内存组装 DTO
+        List<OrderDTO> dtos = orders.stream().map(order -> {
             OrderDTO dto = new OrderDTO();
             BeanUtils.copyProperties(order, dto);
             
-            // 查询订单明细表，获取产品 ID 列表
-            List<Long> productIds = orderItemService.list(new LambdaQueryWrapper<OrderItem>()
-                    .eq(OrderItem::getOrderNo, order.getOrderNo()))
-                    .stream()
-                    .map(OrderItem::getProductId)
-                    .collect(Collectors.toList());
-            
-            dto.setProductIds(productIds);
-            
-            // 检查结算消息是否已投递
-            boolean billSent = orderOutboxService.count(new LambdaQueryWrapper<OrderOutbox>()
-                    .eq(OrderOutbox::getBizNo, order.getOrderNo())
-                    .eq(OrderOutbox::getEventType, "SETTLEMENT_CREATED")
-                    .eq(OrderOutbox::getStatus, "SENT")) > 0;
-            dto.setBillSyncSent(billSent);
+            dto.setProductIds(productIdsMap.getOrDefault(order.getOrderNo(), Collections.emptyList()));
+            dto.setBillSyncSent(sentBizNos.contains(order.getOrderNo()));
             
             return dto;
         }).collect(Collectors.toList());
@@ -77,6 +108,105 @@ public class OrderController {
         dtoPage.setTotal(orderPage.getTotal());
         
         return Result.success(dtoPage);
+    }
+
+    /**
+     * 高级检索接口 (基于 Elasticsearch)
+     */
+    @GetMapping("/search")
+    public Result<Object> search(@RequestParam(value = "keyword", required = false) String keyword,
+                                 @RequestParam(value = "status", required = false) String status,
+                                 @RequestParam(value = "page", defaultValue = "1") Integer page,
+                                 @RequestParam(value = "limit", defaultValue = "20") Integer limit) {
+        log.info("[ES高级检索] 🔍 keyword={}, status={}, page={}, limit={}", keyword, status, page, limit);
+
+        try {
+            NativeQueryBuilder queryBuilder = NativeQuery.builder();
+
+            // 1. 构建 Query
+            if (StringUtils.hasText(keyword)) {
+                queryBuilder.withQuery(q -> q
+                    .bool(b -> b
+                        .should(s -> s.match(m -> m.field("employeeName").query(keyword)))
+                        .should(s -> s.match(m -> m.field("productNames").query(keyword)))
+                        .should(s -> s.match(m -> m.field("orderNo").query(keyword)))
+                        .minimumShouldMatch("1")
+                    )
+                );
+            }
+
+            // 2. 构建 Filter
+            if (StringUtils.hasText(status)) {
+                queryBuilder.withFilter(f -> f
+                    .term(t -> t.field("status").value(status))
+                );
+            }
+
+            // 3. 分页与排序
+            queryBuilder.withPageable(PageRequest.of(page - 1, limit));
+
+            NativeQuery query = queryBuilder.build();
+            SearchHits<EsOrderDoc> searchHits = elasticsearchOperations.search(query, EsOrderDoc.class);
+
+            // 4. 组装结果
+            List<EsOrderDoc> records = searchHits.stream()
+                    .map(SearchHit::getContent)
+                    .collect(Collectors.toList());
+
+            Page<EsOrderDoc> resultPage = new Page<>(page, limit);
+            resultPage.setRecords(records);
+            resultPage.setTotal(searchHits.getTotalHits());
+
+            return Result.success(resultPage);
+
+        } catch (Exception e) {
+            log.error("[ES高级检索] ❌ ES 检索异常，即将降级为 MySQL 查询. Error={}", e.getMessage(), e);
+            // 降级策略：如果 ES 挂了，降级到 MySQL
+            Page<Order> orderPage = new Page<>(page, limit);
+            LambdaQueryWrapper<Order> queryWrapper = new LambdaQueryWrapper<Order>()
+                    .orderByDesc(Order::getCreateTime);
+            if (StringUtils.hasText(status)) {
+                queryWrapper.eq(Order::getStatus, status);
+            }
+            if (StringUtils.hasText(keyword)) {
+                queryWrapper.like(Order::getOrderNo, keyword);
+            }
+            orderService.page(orderPage, queryWrapper);
+
+            List<Order> orders = orderPage.getRecords();
+            if (orders.isEmpty()) {
+                Page<OrderDTO> emptyPage = new Page<>(page, limit);
+                emptyPage.setRecords(Collections.emptyList());
+                emptyPage.setTotal(0);
+                return Result.success(emptyPage);
+            }
+
+            List<String> orderNos = orders.stream().map(Order::getOrderNo).collect(Collectors.toList());
+            List<OrderItem> items = orderItemService.list(new LambdaQueryWrapper<OrderItem>().in(OrderItem::getOrderNo, orderNos));
+            Map<String, List<Long>> productIdsMap = items.stream().collect(Collectors.groupingBy(
+                    OrderItem::getOrderNo,
+                    Collectors.mapping(OrderItem::getProductId, Collectors.toList())
+            ));
+            List<OrderOutbox> outboxes = orderOutboxService.list(new LambdaQueryWrapper<OrderOutbox>()
+                    .in(OrderOutbox::getBizNo, orderNos)
+                    .eq(OrderOutbox::getEventType, "SETTLEMENT_CREATED")
+                    .eq(OrderOutbox::getStatus, "SENT"));
+            Set<String> sentBizNos = outboxes.stream().map(OrderOutbox::getBizNo).collect(Collectors.toSet());
+
+            List<OrderDTO> dtos = orders.stream().map(order -> {
+                OrderDTO dto = new OrderDTO();
+                BeanUtils.copyProperties(order, dto);
+                dto.setProductIds(productIdsMap.getOrDefault(order.getOrderNo(), Collections.emptyList()));
+                dto.setBillSyncSent(sentBizNos.contains(order.getOrderNo()));
+                return dto;
+            }).collect(Collectors.toList());
+
+            Page<OrderDTO> dtoPage = new Page<>(page, limit);
+            dtoPage.setRecords(dtos);
+            dtoPage.setTotal(orderPage.getTotal());
+
+            return Result.success(dtoPage);
+        }
     }
 
     /**

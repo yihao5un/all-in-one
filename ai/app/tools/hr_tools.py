@@ -4,7 +4,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from app.rag.retriever import hr_retriever
 
-GATEWAY_URL = os.getenv("BACKEND_GATEWAY_URL", "http://localhost:8080")
+GATEWAY_URL = os.getenv("BACKEND_GATEWAY_URL", "http://localhost:8088")
 
 @tool
 async def query_order_status(order_no: Annotated[str, "The unique order number to check status for"]):

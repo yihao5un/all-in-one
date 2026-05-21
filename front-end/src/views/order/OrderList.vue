@@ -11,6 +11,41 @@
         </div>
       </template>
 
+      <!-- 搜索过滤栏 -->
+      <div class="filter-bar">
+        <el-form :inline="true" :model="queryParams" class="demo-form-inline">
+          <el-form-item :label="$t('order.searchKeywordLabel')">
+            <el-input
+              v-model="queryParams.keyword"
+              :placeholder="$t('order.searchKeywordPlaceholder')"
+              clearable
+              style="width: 280px"
+              @keyup.enter="handleSearch"
+            />
+          </el-form-item>
+          <el-form-item :label="$t('order.status')">
+            <el-select
+              v-model="queryParams.status"
+              :placeholder="$t('order.selectStatusPlaceholder')"
+              clearable
+              style="width: 160px"
+              @change="handleSearch"
+            >
+              <el-option
+                v-for="item in statusOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="handleSearch">{{ $t('common.search') }}</el-button>
+            <el-button @click="resetQuery">{{ $t('common.reset') }}</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+
       <el-table :data="orders" style="width: 100%" v-loading="loading">
         <el-table-column prop="orderNo" :label="$t('order.orderNo')" width="180" />
         <el-table-column prop="orderType" :label="$t('order.type')">
@@ -20,13 +55,17 @@
         </el-table-column>
         <el-table-column :label="$t('order.employee')" min-width="140">
           <template #default="{ row }">
-            {{ employeeName(row.employeeId) }}
+            <!-- ES doc has employeeName directly; MySQL DTO needs lookup by employeeId -->
+            <span v-if="row.employeeName">{{ row.employeeName }}</span>
+            <span v-else>{{ employeeName(row.employeeId) }}</span>
           </template>
         </el-table-column>
         <el-table-column :label="$t('order.product')" min-width="180">
           <template #default="{ row }">
-            <span v-if="row.productIds && row.productIds.length > 0">
-              {{ row.productIds.map(id => productName(id)).join(', ') }}
+            <!-- ES doc has productNames as a string; MySQL DTO has productIds array -->
+            <span v-if="row.productNames">{{ row.productNames }}</span>
+            <span v-else-if="row.productIds && row.productIds.length > 0">
+              {{ row.productIds.map((id: any) => productName(id)).join(', ') }}
             </span>
             <span v-else>{{ productName(row.productId) }}</span>
           </template>
@@ -138,10 +177,14 @@
       <el-descriptions :column="2" border>
         <el-descriptions-item :label="$t('order.orderNo')">{{ selectedOrder?.orderNo }}</el-descriptions-item>
         <el-descriptions-item :label="$t('order.type')">{{ selectedOrder?.orderType ? $t(`order.${selectedOrder.orderType.toLowerCase()}`) : '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="$t('order.employee')">{{ employeeName(selectedOrder?.employeeId) }}</el-descriptions-item>
+        <el-descriptions-item :label="$t('order.employee')">
+          <span v-if="selectedOrder?.employeeName">{{ selectedOrder?.employeeName }}</span>
+          <span v-else>{{ employeeName(selectedOrder?.employeeId) }}</span>
+        </el-descriptions-item>
         <el-descriptions-item :label="$t('order.product')">
-          <span v-if="selectedOrder?.productIds && selectedOrder?.productIds.length > 0">
-            {{ selectedOrder?.productIds.map(id => productName(id)).join(', ') }}
+          <span v-if="selectedOrder?.productNames">{{ selectedOrder?.productNames }}</span>
+          <span v-else-if="selectedOrder?.productIds && selectedOrder?.productIds.length > 0">
+            {{ selectedOrder?.productIds.map((id: any) => productName(id)).join(', ') }}
           </span>
           <span v-else>{{ productName(selectedOrder?.productId) }}</span>
         </el-descriptions-item>
@@ -180,6 +223,32 @@ const selectedOrder = ref<any>(null)
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
+
+const queryParams = ref({
+  keyword: '',
+  status: ''
+})
+
+const statusOptions = computed(() => [
+  { value: 'CREATED', label: t('order.created') },
+  { value: 'PROCESSING', label: t('order.processing') },
+  { value: 'WAIT_EXTERNAL_SYNC', label: t('order.wait_external_sync') },
+  { value: 'SYNC_FAILED', label: t('order.sync_failed') },
+  { value: 'PENDING_PAYMENT', label: t('order.pending_payment') },
+  { value: 'SETTLED', label: t('order.settled') },
+  { value: 'CLOSED', label: t('order.closed') }
+])
+
+const handleSearch = () => {
+  currentPage.value = 1
+  loadOrders()
+}
+
+const resetQuery = () => {
+  queryParams.value.keyword = ''
+  queryParams.value.status = ''
+  handleSearch()
+}
 
 const searchEmployees = async (query: string) => {
   if (query) {
@@ -309,7 +378,7 @@ const handleCreate = async () => {
 }
 
 const loadOrders = async () => {
-  total.value = await businessStore.fetchOrders(currentPage.value, pageSize.value)
+  total.value = await businessStore.fetchOrders(currentPage.value, pageSize.value, queryParams.value)
 }
 
 const refreshPage = async () => {
@@ -427,5 +496,12 @@ onMounted(refreshPage)
   white-space: nowrap;
   padding-inline: 10px;
   line-height: 22px;
+}
+.filter-bar {
+  margin-bottom: 20px;
+  background-color: #fcfcfc;
+  padding: 18px 18px 2px 18px;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
 }
 </style>
